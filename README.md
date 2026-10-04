@@ -156,8 +156,8 @@ Python edit, and inject real project state at session start.
 The guards are deliberately strict. If one blocks something legitimate, that is
 a conversation about changing the rule, not a reason to disable it.
 
-See **[PROMPTS.md](PROMPTS.md)** for the prompt library, and **[CLAUDE.md](CLAUDE.md)**
-for the full project rules.
+See **[SETUP.md](SETUP.md)** to get running, **[PROMPTS.md](PROMPTS.md)** for the
+prompt library, and **[CLAUDE.md](CLAUDE.md)** for the full project rules.
 
 ---
 
