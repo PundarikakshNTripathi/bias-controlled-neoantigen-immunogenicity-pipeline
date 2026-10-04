@@ -1,0 +1,44 @@
+# The ablation matrix.
+#
+# Breadth here is a budget decision. If compute runs short, REDUCE THE MATRIX
+# and document the reduction. Never reduce the null controls: they are the
+# integrity requirement, not an experimental arm.
+
+name: m3-adaptive-masking
+split_hash: null          # set by `nbx split freeze`; a run refuses to start without it
+
+backbone:                 # Section 7.6.1; change only with a stated reason
+  n_layers: 4
+  n_heads: 4
+  d_model: 128
+  dropout: 0.1
+  learning_rate: 5.0e-5
+  pre_layer_norm: true
+  early_stopping_metric: val_auprc
+
+seeds: [1, 2, 3, 4, 5]
+
+arms:
+  masking: [none, uniform, adaptive]
+  geometry: [off, on]
+
+# Not an arm. Not optional. Not disableable from the command line.
+null_controls:
+  - hla_only
+  - peptide_only
+matched_budget: true      # equal epochs, equal tuning effort, equal capacity
+
+evaluation:
+  protocol: bias-controlled
+  headline_metric: auprc
+  report:
+    - auprc
+    - ppv_at_k
+    - recall_at_k
+    - fraction_ranked
+    - top_20_immunogenic
+    - mcc
+    - kappa                 # shortcut dependence
+    - margin_vs_hla_only
+  allele_stratified: true
+  report_variance_across_seeds: true

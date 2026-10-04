@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nbx"
+version = "0.1.0"
+description = "A bias-controlled benchmark protocol for neoantigen immunogenicity prediction"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Pundarikaksh Narayan Tripathi" }]
+keywords = ["neoantigen", "immunogenicity", "benchmark", "shortcut-learning", "peptide-MHC"]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.11",
+  "pandas>=2.0",
+  "pyyaml>=6.0",
+  "typer>=0.12",
+  "rich>=13.0",
+]
+
+[project.optional-dependencies]
+ml = ["torch>=2.2", "scikit-learn>=1.3"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "mypy>=1.11", "scikit-learn>=1.3"]
+
+[project.scripts]
+nbx = "nbx.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nbx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# B008: typer's documented idiom is a call in the argument default.
+# B905: every zip() in this codebase is preceded by an explicit length check
+#       that raises a clearer error than zip(strict=True) would.
+ignore = ["B008", "B905"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/nbx"]
+ignore_missing_imports = true

@@ -1,0 +1,40 @@
+# artefacts: regenerated from frozen configs, never committed
+artefacts/
+!artefacts/.gitkeep
+*.ckpt
+*.pt
+*.safetensors
+
+# data: public corpora are downloaded, not vendored
+data/raw/
+data/interim/
+*.csv.gz
+*.parquet
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# local Claude Code settings (machine specific, not shared)
+.claude/settings.local.json
+
+# environment
+.env
+.env.*
+secrets/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

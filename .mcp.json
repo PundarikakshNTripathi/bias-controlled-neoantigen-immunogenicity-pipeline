@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "biomcp": {
+      "type": "stdio",
+      "command": "biomcp",
+      "args": ["serve"],
+      "env": {}
+    }
+  }
+}
