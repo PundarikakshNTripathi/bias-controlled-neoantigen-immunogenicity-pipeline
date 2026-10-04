@@ -11,25 +11,25 @@ The repo is already initialised and committed locally. It has one commit and a
 clean working tree.
 
 ```powershell
-cd C:\PROFESSIONAL\JOBS\Resume\Undergrad-Major-Project-Thesis\neoantigen-bias-bench
+cd C:\PROFESSIONAL\Undergrad-Major-Project-Thesis\bias-controlled-neoantigen-immunogenicity-pipeline
 git log --oneline          # should show one commit
 ```
 
 **If you have the GitHub CLI:**
 
 ```powershell
-gh repo create PundarikakshNTripathi/neoantigen-bias-bench `
+gh repo create PundarikakshNTripathi/bias-controlled-neoantigen-immunogenicity-pipeline `
   --public `
   --description "A bias-controlled benchmark protocol for neoantigen immunogenicity prediction." `
   --source=. --remote=origin --push
 ```
 
-**If you do not**, create an empty repo named `neoantigen-bias-bench` at
+**If you do not**, create an empty repo named `bias-controlled-neoantigen-immunogenicity-pipeline` at
 <https://github.com/new> — no README, no .gitignore, no licence, since the repo
 already has all three — then:
 
 ```powershell
-git remote add origin https://github.com/PundarikakshNTripathi/neoantigen-bias-bench.git
+git remote add origin https://github.com/PundarikakshNTripathi/bias-controlled-neoantigen-immunogenicity-pipeline.git
 git push -u origin main
 ```
 
@@ -49,7 +49,7 @@ loop on Python 3.10 and 3.12.
 ## 2 · Environment
 
 ```powershell
-cd C:\PROFESSIONAL\JOBS\Resume\Undergrad-Major-Project-Thesis\neoantigen-bias-bench
+cd C:\PROFESSIONAL\Undergrad-Major-Project-Thesis\bias-controlled-neoantigen-immunogenicity-pipeline
 
 python -m venv .venv
 .venv\Scripts\activate
@@ -68,7 +68,7 @@ invoke `python`, and they need the one with the project's dependencies on it.
 ## 3 · Claude Code
 
 ```powershell
-cd C:\PROFESSIONAL\JOBS\Resume\Undergrad-Major-Project-Thesis\neoantigen-bias-bench
+cd C:\PROFESSIONAL\Undergrad-Major-Project-Thesis\bias-controlled-neoantigen-immunogenicity-pipeline
 claude
 ```
 

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "nbx"
 version = "0.1.0"
-description = "A bias-controlled benchmark protocol for neoantigen immunogenicity prediction"
+description = "A bias-controlled computational pipeline for neoantigen immunogenicity prediction: ingestion, shortcut-bias diagnostics, representation, model and an evaluation protocol that refuses unvalidated results"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

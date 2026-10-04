@@ -33,12 +33,32 @@ the IEDB benchmark by 3.18–15.95% AUROC.
 
 ## What this repository is
 
-Not a better model. A **protocol** that makes that failure detectable, plus the
-diagnostics needed to apply it.
+A **complete computational pipeline** for neoantigen immunogenicity prediction:
+ingestion and harmonisation, bias quantification, representation, model,
+evaluation, release. Six layers, L1 to L6.
 
-The primary deliverable is the bias-controlled evaluation protocol. A model is a
-consumer of the protocol, not a precondition for it — which is why the protocol
-ships first.
+What distinguishes it from the pipelines that already exist is structural. Bias
+measurement sits **upstream** of training rather than downstream of results, and
+the evaluation layer can **refuse** — a model that has not beaten its own null
+control cannot be ranked, and a quantity that has not been measured cannot be
+displayed as though it had.
+
+### Is this a benchmark or a pipeline?
+
+Both, and the distinction matters.
+
+The **system** is a pipeline. A trained immunogenicity predictor comes out of the
+end of it, together with the diagnostics and the debiasing method.
+
+The **headline claim** is the evaluation protocol, because that is what the field
+is currently missing and what this work can defend within one semester. Two of
+the four research objectives are nevertheless modelling contributions, not
+benchmark contributions: the adaptive per-allele masking scheme (O3) and the
+geometric structural channel as a bias-resistant signal (O4).
+
+So: the model is real and is built. It is simply not claimed to be state of the
+art, because claiming that would require exactly the kind of benchmark this
+project argues does not currently exist.
 
 ### The four quantities
 
@@ -94,8 +114,8 @@ and cross-check them against `scipy` and `scikit-learn`.
 ## Quick start
 
 ```bash
-git clone https://github.com/PundarikakshNTripathi/neoantigen-bias-bench.git
-cd neoantigen-bias-bench
+git clone https://github.com/PundarikakshNTripathi/bias-controlled-neoantigen-immunogenicity-pipeline.git
+cd bias-controlled-neoantigen-immunogenicity-pipeline
 
 python -m venv .venv
 # Windows:  .venv\Scripts\activate

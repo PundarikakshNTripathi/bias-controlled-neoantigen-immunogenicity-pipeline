@@ -15,9 +15,15 @@ never sees the peptide and therefore cannot model recognition even in principle
 If a model structurally incapable of the task wins, the benchmark is not
 measuring the task.
 
-The primary deliverable is therefore **not a better model**. It is a
-bias-controlled evaluation protocol that makes this failure detectable. A model
-is a consumer of that protocol, not a precondition for it.
+What we are building is a **complete computational pipeline** — L1 ingestion
+through L6 release — that produces a trained immunogenicity predictor. What is
+*novel* about it is the bias control: the diagnostics (O2), the adaptive
+per-allele masking (O3), the geometric bias-resistant channel (O4), and the
+evaluation protocol (O1) that ties them together.
+
+The protocol is the **headline claim**, because it is the defensible one and it
+ships first. It is not the whole system. Do not describe this project as "just a
+benchmark", and do not describe the model as state of the art — neither is true.
 
 This matters for how you work here: the entire intellectual content of the
 project is about not fooling yourself with favourable-looking numbers. Code that
