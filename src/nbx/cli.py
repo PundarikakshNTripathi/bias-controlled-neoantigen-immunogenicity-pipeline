@@ -76,11 +76,120 @@ def init(
 
 @data_app.command("harmonise")
 def data_harmonise(
-    sources: str = typer.Option(..., "--sources", help="Comma-separated corpus names."),
+    iedb_tcell: Path = typer.Option(
+        ...,
+        "--iedb-tcell",
+        help="IEDB T cell assay export (tcell_full_v3.zip or .csv).",
+    ),
+    mhc_pseudo: Path = typer.Option(
+        ...,
+        "--mhc-pseudo",
+        help="Allele -> 34-residue pseudo-sequence table (NAME SEQUENCE per line).",
+    ),
     out: Path = typer.Option(Path("artefacts/datasets"), "--out"),
+    name: str = typer.Option("iedb_tcell", "--name", help="Artefact base name."),
 ) -> None:
-    """Ingest public corpora into one canonical, content-hashed dataset."""
-    _unbuilt("nbx.data.harmonise")
+    """Ingest public corpora into one canonical, content-hashed dataset.
+
+    This pass ingests the IEDB T cell export only. Every number printed below
+    is read off the frame that was just built; none is a constant.
+    """
+    from nbx.data.harmonise import HarmonisationError, harmonise
+
+    try:
+        corpus, paths = harmonise(
+            {"iedb_tcell": iedb_tcell, "mhc_pseudo": mhc_pseudo},
+            out_dir=out,
+            name=name,
+        )
+    except HarmonisationError as exc:
+        console.print(f"[red]harmonisation refused:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    report = corpus.report
+    frame = corpus.frame
+
+    summary = Table(title="canonical corpus", show_header=True, header_style="bold")
+    summary.add_column("Quantity")
+    summary.add_column("Value", justify="right")
+    summary.add_row("records", f"{len(frame):,}")
+    summary.add_row("alleles", f"{frame['allele'].nunique():,}")
+    summary.add_row("content hash", corpus.short_hash)
+    for label, count in sorted(report["label_counts"].items()):
+        summary.add_row(f"label {label}", f"{count:,}")
+    summary.add_row("dropped (total)", f"{report['dropped_total']:,}")
+    summary.add_row(
+        "dropped: missing provenance", f"{report['dropped_for_missing_provenance']:,}"
+    )
+    summary.add_row(
+        "excluded for length", f"{report['peptides_excluded_for_length']:,}"
+    )
+    summary.add_row(
+        "duplicates merged", f"{report['duplicate_records_merged']:,}"
+    )
+    summary.add_row(
+        "label-conflict pairs dropped",
+        f"{report['label_conflict_pairs_dropped']:,}",
+    )
+    console.print(summary)
+
+    lengths = Table(title="peptide length", show_header=True, header_style="bold")
+    lengths.add_column("Length")
+    lengths.add_column("Records", justify="right")
+    for length in sorted(report["length_distribution"], key=int):
+        lengths.add_row(length, f"{report['length_distribution'][length]:,}")
+    console.print(lengths)
+
+    sources_table = Table(title="per source", show_header=True, header_style="bold")
+    sources_table.add_column("Source")
+    sources_table.add_column("Records", justify="right")
+    sources_table.add_column("Alleles", justify="right")
+    sources_table.add_column("Positive", justify="right")
+    sources_table.add_column("Negative", justify="right")
+    for source, stats in sorted(report["per_source_breakdown"].items()):
+        sources_table.add_row(
+            source,
+            f"{stats['record_count']:,}",
+            f"{stats['allele_count']:,}",
+            f"{stats['n_positive']:,}",
+            f"{stats['n_negative']:,}",
+        )
+    console.print(sources_table)
+
+    drops = Table(title="dropped by reason", show_header=True, header_style="bold")
+    drops.add_column("Reason")
+    drops.add_column("Records", justify="right")
+    for reason, count in sorted(
+        report["dropped_by_reason"].items(), key=lambda kv: (-kv[1], kv[0])
+    ):
+        drops.add_row(reason, f"{count:,}")
+    console.print(drops)
+
+    comparison = report["reference_comparison"]
+    refs = Table(
+        title="published-statistic comparison (FR-06)",
+        show_header=True,
+        header_style="bold",
+    )
+    refs.add_column("Statistic")
+    refs.add_column("Observed", justify="right")
+    refs.add_column("Published", justify="right")
+    refs.add_column("Discrepancy", justify="right")
+    refs.add_column("Status")
+    for entry in comparison["statistics"]:
+        refs.add_row(
+            entry["name"],
+            entry["observed"],
+            entry["reference"],
+            entry["discrepancy"],
+            entry["status"],
+        )
+    console.print(refs)
+    if comparison["note"]:
+        console.print(f"[dim]{comparison['note']}[/dim]")
+
+    console.print(f"[green]dataset[/green] {paths['dataset']}")
+    console.print(f"[green]report [/green] {paths['report']}")
 
 
 @bias_app.command("profile")
@@ -93,7 +202,7 @@ def bias_profile(
     Runs BEFORE any model is trained. Its output conditions the modelling and
     evaluation layers rather than merely annotating their results.
     """
-    _unbuilt("nbx.data.harmonise (required first)")
+    _unbuilt("nbx.bias.profile (diagnostics built; CLI wiring pending)")
 
 
 @split_app.command("freeze")
@@ -104,7 +213,7 @@ def split_freeze(
     seed: int = typer.Option(20260928, "--seed"),
 ) -> None:
     """Build and freeze an allele-balanced split (requirement R1)."""
-    _unbuilt("nbx.data.harmonise (required first)")
+    _unbuilt("nbx.splits.freeze (built; CLI wiring pending)")
 
 
 @repr_app.command("cache")
