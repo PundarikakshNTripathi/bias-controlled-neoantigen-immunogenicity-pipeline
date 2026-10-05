@@ -1,216 +1,268 @@
 # nbx
 
-**A bias-controlled benchmark protocol for neoantigen immunogenicity prediction.**
+A bias-controlled evaluation protocol and computational pipeline for neoantigen
+immunogenicity prediction.
 
-Final-year B.Tech. major project · Babu Banarasi Das University, Lucknow
-Author: Pundarikaksh Narayan Tripathi
+Undergraduate (B.Tech., Computer Science and Engineering) major project, Babu
+Banarasi Das University, Lucknow. Author: Pundarikaksh Narayan Tripathi.
+Supervisor: Mr. Sachin Bhardwaj.
+
+Status: research code under active development. No model has been trained and no
+immunogenicity result has been produced. See [State](#state).
 
 ---
 
-## The problem
+## Motivation
 
-A mutated peptide must clear three stages to be a useful neoantigen: bind the
-patient's HLA molecule, be presented at the cell surface, and be recognised by a
-T cell. Binding and presentation are, in engineering terms, handled.
-Immunogenicity is not — the TESLA consortium confirmed only about **6%** of
-computationally predicted epitopes as immunogenic.
+For a mutated peptide to be a useful neoantigen it must be bound by the patient's
+HLA class I molecule, presented at the cell surface, and recognised by a T cell
+receptor. Predictors for the first two stages are reported to perform well
+(presentation AUROC above 0.97 in the literature). Immunogenicity prediction does
+not: in the TESLA consortium benchmark only about 6% of computationally
+predicted epitopes were experimentally confirmed (Wells et al., Cell 2020).
 
-Work published in *Cell Genomics* in April 2026 established why this is worse
-than a data-scarcity problem. Deep-learning immunogenicity predictors exploit
-**intra-HLA label imbalance** as a statistical shortcut. Within an allele, the
-positive-to-negative ratio often differs by more than tenfold, and the *same*
-allele shows opposite ratios in different datasets — which proves the ratio is
-an artefact of experimental design rather than a property of the biology.
+Zhang et al. (Cell Genomics, April 2026) argue that this is not only a data
+scarcity problem. Published immunogenicity models exploit intra-HLA label
+imbalance: within a single allele the ratio of positive to negative peptides
+frequently differs by more than tenfold, and the same allele shows different
+ratios in different datasets, so the ratio reflects experimental design rather than
+biology. They report that a control model given only the HLA allele, with the
+peptide withheld, outperformed fifteen previously evaluated models on the IEDB
+benchmark by 3.18 to 15.95 percent AUROC. A model that cannot represent T cell
+recognition in principle ranks above models built to do so, which indicates that
+the benchmark does not measure the intended task.
 
-Then the result that defines this project: three input variants were trained —
-peptide-only, peptide+HLA, and **HLA-only**, with the peptide withheld
-entirely. The HLA-only model, which cannot represent T cell recognition even in
-principle, performed **best**, exceeding fifteen previously evaluated models on
-the IEDB benchmark by 3.18–15.95% AUROC.
+This repository addresses that evaluation problem and the pipeline needed to
+study it.
 
-> If a model structurally incapable of the task outranks models designed for it,
-> the benchmark is not measuring the task.
+## Contributions
 
-## What this repository is
+The system is a six-layer pipeline from data ingestion to release. The
+contributions are the parts that control for the shortcut:
 
-A **complete computational pipeline** for neoantigen immunogenicity prediction:
-ingestion and harmonisation, bias quantification, representation, model,
-evaluation, release. Six layers, L1 to L6.
-
-What distinguishes it from the pipelines that already exist is structural. Bias
-measurement sits **upstream** of training rather than downstream of results, and
-the evaluation layer can **refuse** — a model that has not beaten its own null
-control cannot be ranked, and a quantity that has not been measured cannot be
-displayed as though it had.
-
-### Is this a benchmark or a pipeline?
-
-Both, and the distinction matters.
-
-The **system** is a pipeline. A trained immunogenicity predictor comes out of the
-end of it, together with the diagnostics and the debiasing method.
-
-The **headline claim** is the evaluation protocol, because that is what the field
-is currently missing and what this work can defend within one semester. Two of
-the four research objectives are nevertheless modelling contributions, not
-benchmark contributions: the adaptive per-allele masking scheme (O3) and the
-geometric structural channel as a bias-resistant signal (O4).
-
-So: the model is real and is built. It is simply not claimed to be state of the
-art, because claiming that would require exactly the kind of benchmark this
-project argues does not currently exist.
-
-### The four quantities
-
-| | | |
+| ID | Contribution | Module |
 |---|---|---|
-| `I(b;y) = H(y) − H(y\|b)` | mutual information | detects bias candidates |
-| `ρ(a) = log₂(N⁺(a)/N⁻(a))` | per-allele imbalance | saturates at ±10 |
-| `κ(f) = spearman(ρ(a), E[f(x)\|a])` | **shortcut dependence** | the headline number |
-| `M(a) = {j : I(x_j;y\|a) > τ}` | adaptive masking policy | generalises fixed anchor masking |
+| O1 | Evaluation protocol: allele-balanced splits, allele-stratified metrics, mandatory matched HLA-only and peptide-only null controls, and an acceptance rule | M6, `nbx.evaluate`, `nbx.splits` |
+| O2 | Information-theoretic bias diagnostics computed on the corpus before training | M2, `nbx.bias.diagnostics` |
+| O3 | Adaptive per-allele masking derived from per-position mutual information, compared against no masking and uniform position-2/C-terminus masking | M5, `nbx.bias.policy` |
+| O4 | Geometric interface features from an open structure predictor as a candidate bias-resistant input | M3, M4 |
+| O5 | Reproducible open implementation | M7 |
 
-κ near zero is what a model that learned biology should show. A clearly positive
-κ means the model scores an allele according to how that allele was labelled in
-training.
+The evaluation protocol (O1) is the primary claim, since it is the part that can be
+defended within the project's time and compute budget. O3 and O4 are hypotheses
+(H3, H4) that may be refuted; a negative result is reported as such. The
+predictor is not claimed to be state of the art.
 
-### The acceptance rule
+Bias diagnostics (L2) sit upstream of modelling (L4), so that the measured bias of a
+corpus conditions training instead of annotating results afterwards.
 
-Implemented in `nbx/evaluate/gate.py`, with a truth table in `tests/test_gate.py`:
+### Quantities
 
-> A result counts as positive only if discrimination improves **and** shortcut
-> dependence does not rise.
+Defined once in `src/nbx/bias/diagnostics.py` and tested against analytic cases and
+against `scipy` and `scikit-learn`:
 
-Four reachable states — `PENDING` (a mandated null control is missing; no
-headline metric may be displayed at all), `NOT_SIGNIFICANT`, `FAILED_SHORTCUT`,
-`PASSED`. There is deliberately no `force`, `override` or `skip_controls`
-parameter, and a hook blocks adding one.
+```
+I(b;y)  = H(y) - H(y|b)               mutual information between a bias candidate b and the label y
+rho(a)  = log2(N+(a) / N-(a))         per-allele log imbalance ratio, saturated at +/-10
+kappa(f)= spearman(rho(a), E[f(x)|a]) shortcut dependence of a trained model f
+M(a)    = { j : I(x_j; y | a) > tau } per-allele masking policy
+```
+
+A model that has learned peptide-level determinants should have kappa near zero. A
+clearly positive kappa indicates that the model scores an allele by how that allele
+was labelled in training.
+
+### Acceptance rule
+
+Implemented in `src/nbx/evaluate/gate.py` and specified by the truth table in
+`tests/test_gate.py`. A result is positive only if discrimination improves over the
+matched HLA-only control by a significant margin and shortcut dependence does not
+increase. A variant is in one of five states:
+
+| State | Meaning |
+|---|---|
+| `PENDING` | A mandated null control or a required metric is missing. No metric is displayed. |
+| `NOT_SIGNIFICANT` | Controls present; margin over the HLA-only control not significant. No rank. |
+| `FAILED_SHORTCUT` | Margin significant but kappa increased. Reported, not ranked. |
+| `PASSED` | Discrimination improved and kappa did not increase. Ranked, margin shown. |
+| `CONTROL` | The row is itself a null control. Never ranked. |
+
+The gate has no override parameter by design. Quantities that have not been
+measured render as an em dash and never as zero.
 
 ---
 
 ## State
 
-Run `nbx status` for the live answer. At the time of writing:
+`nbx status` reports the current state; this table may lag it.
 
 | Module | Package | State |
 |---|---|---|
-| M1 Data harmonisation | `nbx.data.harmonise` | contract only |
-| **M2 Bias diagnostics** | `nbx.bias.diagnostics` | **built, tested** |
+| M1 Data harmonisation | `nbx.data.harmonise` | IEDB T cell export only; MHC ligand, TESLA and HiTIDE not ingested |
+| M2 Bias diagnostics | `nbx.bias.diagnostics` | built, tested; not yet run on the harmonised corpus |
 | M3 Representation service | `nbx.represent.cache` | contract only |
 | M4 Model core | `nbx.model.backbone` | contract only |
-| **M5 Masking policy** | `nbx.bias.policy` | **built, tested** |
-| M6 Evaluation harness | `nbx.evaluate` | gate + metrics built; orchestration pending |
+| M5 Masking policy | `nbx.bias.policy` | built, tested |
+| M6 Evaluation harness | `nbx.evaluate` | gate and metrics built; orchestration (`protocol.py`) not built |
 | M7 Release packaging | `nbx.release` | contract only |
 
-No experiment has been run. Every metric in every interface therefore renders as
-an em dash (—). That is the designed empty state, not a gap waiting for sample
-values.
+Hypotheses H1 to H4 have not been evaluated. Until they are, results are shown as
+an em dash.
 
-The mathematics in M2 and M5, the acceptance gate, the split construction and
-the metrics are covered by tests that pin them against analytically known cases
-and cross-check them against `scipy` and `scikit-learn`.
+### M1: IEDB T cell corpus
+
+Input: the IEDB `tcell_full_v3` full export (CSV, two header rows, downloaded
+2026-10-05; checksums in `data/raw/MANIFEST.txt`, which is gitignored along with the
+raw data). Allele pseudo-sequences (34 residues, NetMHCpan convention) are read
+from `IEDB_MHC_pseudo.dat` in the ImmuBPI repository; the file's origin and licence
+are not stated upstream, so it is downloaded locally and not vendored.
+
+Retained records satisfy: human HLA class I with a resolvable two-field allele,
+linear unmodified peptide of 8 to 14 standard residues, qualitative outcome
+mapped to a binary label (all `Positive*` levels to 1, `Negative` to 0), and
+non-empty source, assay method and negative-sample origin. A record missing
+provenance is dropped, never defaulted. Records duplicated on (peptide, allele) are
+merged with the union of their provenance; pairs with contradictory labels are
+dropped and counted.
+
+Output of the run on 2026-10-05 (from `artefacts/datasets/iedb_tcell.report.json`,
+reproducible with the command below):
+
+| Quantity | Value |
+|---|---|
+| Raw assay rows | 578,203 |
+| Canonical records | 46,608 |
+| Alleles | 146 |
+| Distinct peptides | 28,714 |
+| Positive / negative | 10,925 / 35,683 |
+| Content hash | `3cc846db315c0c2c9ddfc2af232638cb0dac91d29fdba59bb5cfed77029a7821` |
+
+Kept, dropped and merged records sum to the raw row count; every drop is assigned
+to exactly one named reason in the report.
+
+Two properties of this corpus need to be kept in view. First, dropping
+contradictory-label pairs removes 25,034 positive and 8,611 negative records, so the
+positive-to-negative ratio moves from roughly 1:1 before to roughly 1:3 after;
+this single policy choice changes the label balance and is part of the hashed
+criterion. Second, `HLA-B*44:01` is absent from the pseudo-sequence table and is
+therefore excluded. No published reference statistic for this subset has been
+located, so the reproduction check (FR-06) reports no reference rather than a
+match.
 
 ---
 
-## Quick start
+## Installation and verification
+
+Python 3.10 or later.
 
 ```bash
 git clone https://github.com/PundarikakshNTripathi/bias-controlled-neoantigen-immunogenicity-pipeline.git
 cd bias-controlled-neoantigen-immunogenicity-pipeline
 
 python -m venv .venv
-# Windows:  .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
+# Windows:      .venv\Scripts\activate
+# Linux/macOS:  source .venv/bin/activate
 
 pip install -e ".[dev]"
 
-python scripts/verify.py     # should print VERIFICATION PASSED
-nbx doctor
+python scripts/verify.py      # lint, honesty check, tests, types
+nbx doctor                    # integrity core self-check
 nbx status
 ```
 
-### Commands
+The virtual environment must be active when the repository's Claude Code hooks run,
+because they invoke `python`.
 
-| Command | Does |
-|---|---|
-| `nbx init` | Scaffold the artefact store |
-| `nbx data harmonise` | Ingest public corpora into one canonical dataset |
-| `nbx bias profile` | Compute I(b;y), ρ(a) and derive the masking policy |
-| `nbx split freeze` | Build and freeze an allele-balanced split (R1) |
-| `nbx repr cache` | Compute and cache representations |
-| `nbx train --matrix` | Run the ablation matrix with mandated null controls |
-| `nbx eval --protocol bias-controlled` | Evaluate under the protocol |
-| `nbx report` | Package the benchmark report (deliverable D1) |
-| `nbx doctor` / `nbx status` | Integrity check / module state |
+### Reproducing the harmonised corpus
 
-Commands for unbuilt modules exit with code 2 and point at the prompt that
-builds them. They do not pretend to work.
-
----
-
-## Working with Claude Code
-
-This repository ships a harness that enforces its own research-integrity rules.
+Download the IEDB `tcell_full_v3.zip` export and `IEDB_MHC_pseudo.dat` into
+`data/raw/` (not committed), then:
 
 ```bash
-claude            # from the repo root
+nbx data harmonise \
+  --iedb-tcell data/raw/iedb/tcell_full_v3.zip \
+  --mhc-pseudo data/raw/immubpi/IEDB_MHC_pseudo.dat \
+  --out artefacts/datasets
 ```
 
-**Slash commands**
+This writes `iedb_tcell.parquet` and `iedb_tcell.report.json`. The content hash covers
+both the data and the filter criterion, so a changed criterion produces a different
+hash, and the command refuses to overwrite an existing artefact whose hash differs.
+IEDB data are released under CC BY 4.0; cite IEDB when using derived data
+(Vita et al., Nucleic Acids Research 47(D1), 2019).
 
-| Command | Does |
-|---|---|
-| `/next` | Decide what to work on, from the real state of the repo |
-| `/module M1` | Build one module test-first against its contract |
-| `/verify` | Run the verification loop and show the real output |
-| `/gate-check` | Apply the acceptance rule before a result is reported |
-| `/bias-report` | Compute and present a corpus bias profile |
+### Commands
 
-**Subagents** — `bias-auditor` (adversarial result audit), `repro-verifier`
-(verify by execution), `literature-verifier` (check every citation),
-`ml-engineer`, `data-steward`.
+| Command | Function | State |
+|---|---|---|
+| `nbx data harmonise` | Ingest a public corpus into one canonical dataset | built (IEDB T cell) |
+| `nbx bias profile` | Compute I(b;y), rho(a), per-position MI and the masking policy | CLI not wired |
+| `nbx split freeze` | Build and freeze an allele-balanced split | CLI not wired |
+| `nbx repr cache` | Compute and cache representations | not built |
+| `nbx train --matrix` | Run the ablation matrix with mandatory null controls | not built |
+| `nbx eval --protocol bias-controlled` | Evaluate under the protocol | not built |
+| `nbx report` | Package the benchmark report | not built |
+| `nbx doctor`, `nbx status` | Integrity check, module state | built |
 
-**Hooks** — block writes to frozen splits, block adding a gate override, block
-unsourced metric values in result-bearing documents, run fast checks after every
-Python edit, and inject real project state at session start.
-
-The guards are deliberately strict. If one blocks something legitimate, that is
-a conversation about changing the rule, not a reason to disable it.
-
-See **[SETUP.md](SETUP.md)** to get running, **[PROMPTS.md](PROMPTS.md)** for the
-prompt library, and **[CLAUDE.md](CLAUDE.md)** for the full project rules.
+Commands for unbuilt modules exit with code 2 and name the module they depend on.
 
 ---
 
-## Scope
+## Reproducibility rules
 
-Computational and machine-learning work only, on public de-identified data:
-IEDB, TESLA-derived evaluation sets, HiTIDE/NCI harmonised corpora, PDB, UniProt.
+These are enforced by tests and by hooks in `.claude/`:
 
-**Out of scope:** patient-identifiable or controlled-access data, wet-laboratory
-work of any kind, and clinical or diagnostic claims. This is research software.
-It is not a medical device, is not validated for clinical use, and candidate
-ranking output carries a permanent research-use-only notice.
+1. No metric value, count or p-value appears in code or documentation unless a
+   command in this repository computed it or it is cited to a source with a
+   locator.
+2. Unmeasured quantities render as an em dash.
+3. The acceptance gate cannot be bypassed.
+4. Frozen splits under `artefacts/splits/` are immutable. A different criterion is a
+   different experiment with a different content hash.
+5. Every trained variant ships with matched HLA-only and peptide-only controls at
+   equal capacity, training budget and tuning effort.
+6. Negative results are reported. Hyperparameters are not tuned until a hypothesis
+   passes.
+7. Results are reported as means with across-seed variance, not as best runs.
 
-A longer-term programme toward personalised therapeutic pipelines exists, and is
-gated on institutional collaboration, licensing and regulatory approval. Nothing
-in this repository depends on it.
+`CLAUDE.md` holds the full project rules and `PROMPTS.md` the prompts used to drive
+development with Claude Code. `SETUP.md` covers environment and tooling setup.
 
 ---
 
-## Upstream work
+## Scope and limitations
 
-- Zhang et al., *Cross-task interpretability through unified modeling reveals a
-  universal shortcut bias in neoantigen prediction*, **Cell Genomics**, April 2026.
-  Code: [WangLabTHU/ImmuBPI](https://github.com/WangLabTHU/ImmuBPI) ·
-  data: [Zenodo 18610279](https://zenodo.org/records/18610279).
-  *(The repository states MIT; the Zenodo record lists Apache-2.0. Check which
-  applies before vendoring anything.)*
-- Wells et al., *Key parameters of tumor epitope immunogenicity revealed through
-  a consortium approach*, **Cell** 183(3), 2020. (TESLA)
-- Reynisson et al., *NetMHCpan-4.1*, **Nucleic Acids Research** 48(W1), 2020.
-- Albert et al., *BigMHC*, **Nature Machine Intelligence** 5, 2023.
+Computational and machine-learning work only, on public de-identified data: IEDB,
+TESLA-derived evaluation sets, HiTIDE/NCI harmonised corpora, PDB and UniProt.
+The project scope is HLA class I presentation to CD8-positive T cells; class II is
+excluded.
+
+Conclusions are bounded by the quality, coverage and heterogeneity of existing
+public assay data; no new experimental ground truth is generated. Out of scope:
+patient-identifiable or controlled-access data, wet-laboratory work, and any
+clinical or diagnostic claim. This is research software, not a medical device, and
+candidate-ranking output carries a permanent research-use-only notice.
+
+## References
+
+- Zhang Z., Wei L., Wu W., Qi H., Wang X. Cross-task interpretability through
+  unified modeling reveals a universal shortcut bias in neoantigen prediction.
+  *Cell Genomics* 6(7), 101214 (2026). doi:10.1016/j.xgen.2026.101214. Code:
+  [WangLabTHU/ImmuBPI](https://github.com/WangLabTHU/ImmuBPI) (repository states MIT);
+  data: [Zenodo 18610279](https://zenodo.org/records/18610279) (record lists
+  Apache-2.0). The two licence statements differ and have not yet been reconciled.
+- Wells D.K. et al. Key parameters of tumor epitope immunogenicity revealed through
+  a consortium approach improve neoantigen prediction. *Cell* 183(3), 818-834 (2020).
+  doi:10.1016/j.cell.2020.09.015.
+- Reynisson B. et al. NetMHCpan-4.1 and NetMHCIIpan-4.0. *Nucleic Acids Research*
+  48(W1), W449-W454 (2020). doi:10.1093/nar/gkaa379.
+- Albert B.A. et al. Deep neural networks predict class I major histocompatibility
+  complex epitope presentation and transfer learn neoantigen immunogenicity. *Nature
+  Machine Intelligence* 5, 861-872 (2023). doi:10.1038/s42256-023-00694-6.
+- Vita R. et al. The Immune Epitope Database (IEDB): 2018 update. *Nucleic Acids
+  Research* 47(D1), D339-D343 (2019). doi:10.1093/nar/gky1006.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Third-party models, datasets and baselines remain
-under their own terms.
+MIT; see [LICENSE](LICENSE). Third-party models, datasets and baselines remain under
+their own terms.

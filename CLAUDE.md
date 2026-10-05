@@ -81,7 +81,7 @@ measurement conditions training rather than annotating results afterwards.
 
 | Layer | Module | Package | State |
 |---|---|---|---|
-| L1 ingestion | M1 Data harmonisation | `nbx.data.harmonise` | contract only |
+| L1 ingestion | M1 Data harmonisation | `nbx.data.harmonise` | built for IEDB T cell export only, tested; other corpora not ingested |
 | L2 bias quantification | M2 Bias diagnostics | `nbx.bias.diagnostics` | **built, tested** |
 | L3 representation | M3 Representation service | `nbx.represent.cache` | contract only |
 | L4 modelling | M4 Model core | `nbx.model.backbone` | contract only |
