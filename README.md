@@ -117,46 +117,64 @@ raw data). Allele pseudo-sequences (34 residues, NetMHCpan convention) are read
 from `IEDB_MHC_pseudo.dat` in the ImmuBPI repository; the file's origin and licence
 are not stated upstream, so it is downloaded locally and not vendored.
 
-Retained records satisfy: human HLA class I with a resolvable two-field allele,
-linear unmodified peptide of 8 to 14 standard residues, qualitative outcome
-mapped to a binary label (all `Positive*` levels to 1, `Negative` to 0), and
-non-empty source, assay method and negative-sample origin. A record missing
-provenance is dropped, never defaulted. Records duplicated on (peptide, allele) are
-merged with the union of their provenance; pairs with contradictory labels are
-dropped and counted.
+The unit of analysis is the (peptide, allele) pair; raw assay rows are repeated
+measurements of a pair. Retained pairs satisfy: human HLA class I with a resolvable
+two-field allele present in the pseudo-sequence table, linear unmodified peptide of 8
+to 14 standard residues, qualitative outcome mapped to a binary label (all `Positive*`
+levels to 1, `Negative` to 0), and non-empty source and assay method. A record
+missing provenance is dropped, never defaulted. Pairs whose assays disagree are
+labelled by one of three rules, fixed in advance in `docs/analysis_plan.md`:
 
-Output of the run on 2026-10-05 (from `artefacts/datasets/iedb_tcell.report.json`,
+| Rule | Mixed pairs | Role |
+|---|---|---|
+| `majority` | label by strict majority of assay records; ties dropped | primary |
+| `strict` | every disagreeing pair dropped | sensitivity analysis |
+| `any_positive` | positive if any assay record is positive | sensitivity analysis |
+
+Output of the runs on 2026-10-11 (from `artefacts/datasets/iedb_tcell_<rule>.report.json`,
 reproducible with the command below):
 
-| Quantity | Value |
-|---|---|
-| Raw assay rows | 578,203 |
-| Canonical records | 46,608 |
-| Alleles | 146 |
-| Distinct peptides | 28,714 |
-| Positive / negative | 10,925 / 35,683 |
-| Content hash | `3cc846db315c0c2c9ddfc2af232638cb0dac91d29fdba59bb5cfed77029a7821` |
+| Quantity | majority | strict | any_positive |
+|---|---|---|---|
+| Pairs | 49,395 | 46,608 | 50,782 |
+| Alleles | 147 | 146 | 152 |
+| Positive / negative | 13,107 / 36,288 | 10,925 / 35,683 | 15,099 / 35,683 |
+| Pairs dropped by the rule | 1,387 (ties) | 4,174 | 0 |
+| Assay records behind kept pairs | 94,491 | 64,476 | 98,121 |
 
-Kept, dropped and merged records sum to the raw row count; every drop is assigned
-to exactly one named reason in the report.
+The raw export has 578,203 assay rows. For every rule, rows kept, dropped (each under
+one named reason) and collapsed into pairs sum to that count; the module raises if
+they do not. Content hashes are recorded in each report. A pair counts as mixed in
+4,174 cases, of which 1,387 are ties. The three class balances above are a consequence
+of the labelling rule, not a property of T cell biology.
 
-Two properties of this corpus need to be kept in view. First, dropping
-contradictory-label pairs removes 25,034 positive and 8,611 negative records, so the
-positive-to-negative ratio moves from roughly 1:1 before to roughly 1:3 after;
-this single policy choice changes the label balance and is part of the hashed
-criterion. Second, `HLA-B*44:01` is absent from the pseudo-sequence table and is
-therefore excluded. No published reference statistic for this subset has been
-located, so the reproduction check (FR-06) reports no reference rather than a
-match.
+Caveats that bear on interpretation:
+
+- A majority is taken over assay rows, not over independent studies. 692 of the 2,787
+  pairs decided by majority have all their rows in a single PMID group, and 22,223
+  pairs carry no PMID. A per-paper majority would agree with the row majority on all
+  but 23 of those 2,787 pairs, with a further 309 per-paper ties.
+- The export mixes assay types (it has 314 distinct values) whose meaning differs, for
+  example pMHC-multimer binding and functional T cell assays. `assay_type` carries the
+  most information about the label of the variables profiled, and whether all of these
+  assays measure immunogenicity is a scoping question that is open.
+- `HLA-B*44:01` is absent from the pseudo-sequence table and its 4 records are
+  excluded.
+- No published reference statistic for this subset has been located, so the
+  reproduction check (FR-06) reports no reference, rendered as an em dash, which is
+  not a match.
 
 ### M2: bias profile of the IEDB T cell corpus
 
 ```bash
-nbx bias profile artefacts/datasets/iedb_tcell.parquet --report artefacts/bias/iedb_tcell.bias.json
+nbx bias profile artefacts/datasets/iedb_tcell_strict.parquet --report artefacts/bias/iedb_tcell.bias.json
 ```
 
-The report records the input file's sha256 and is byte-for-byte reproducible. Read
-from the run of 2026-10-11 on the corpus above:
+The report records the input file's sha256 and is byte-for-byte reproducible. The run
+below used the earlier artefact whose (peptide, allele, label) set is identical to the
+`strict` artefact above (46,608 pairs, 146 alleles). It has not been repeated on the
+primary `majority` artefact, whose allele set differs by one allele. Read from the run
+of 2026-10-11:
 
 - Of 146 alleles, 124 have a defined imbalance ratio (22 single-sample alleles are
   excluded), and 48 of those 124 lie beyond 10:1 in either direction. The published
@@ -209,10 +227,11 @@ Download the IEDB `tcell_full_v3.zip` export and `IEDB_MHC_pseudo.dat` into
 nbx data harmonise \
   --iedb-tcell data/raw/iedb/tcell_full_v3.zip \
   --mhc-pseudo data/raw/immubpi/IEDB_MHC_pseudo.dat \
-  --out artefacts/datasets
+  --out artefacts/datasets \
+  --label-rule majority          # or strict, or any_positive
 ```
 
-This writes `iedb_tcell.parquet` and `iedb_tcell.report.json`. The content hash covers
+This writes `iedb_tcell_<rule>.parquet` and `iedb_tcell_<rule>.report.json`. The content hash covers
 both the data and the filter criterion, so a changed criterion produces a different
 hash, and the command refuses to overwrite an existing artefact whose hash differs.
 IEDB data are released under CC BY 4.0; cite IEDB when using derived data

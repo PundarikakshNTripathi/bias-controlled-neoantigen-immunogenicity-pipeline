@@ -165,3 +165,73 @@ profile is not version-controlled; its identity rests on the hashes above.
 
 **Needs your decision before splits are frozen:** the conflict policy, because it
 changes which records, and so which alleles, enter the split.
+
+---
+
+## 2026-10-11 — pre-registration and corpus v2 (pair-level labels)
+
+**Decided.** The analysis plan is committed as `docs/analysis_plan.md` before any
+model exists: hypotheses and refutation conditions, pair as the unit of analysis,
+`majority` as the primary label rule with `strict` and `any_positive` as declared
+sensitivity analyses, peptide-grouped splits, an allele-clustered paired bootstrap
+for the margin over the HLA-only control, and a label-permutation null for the
+masking policy. One item is still pending explicit approval: the shortcut-dependence
+tolerance, because it changes the gate rule.
+
+**Built.** `label_rule` on the harmonisation criterion (part of the content hash);
+pair columns `n_assay_records`, `n_positive_assay_records`, `positive_fraction`;
+record-level and pair-level reconciliation that raises if either fails; a distinct
+drop reason for alleles that resolve to a two-field name but are absent from the
+pseudo-sequence table (it was mislabelled before); a tamper check that re-hashes an
+existing parquet before refreshing its report; `--label-rule` on `nbx data harmonise`;
+`scripts/check_label_rule_artefacts.py`. 139 tests pass (35 in `test_harmonise.py`).
+
+**Measured** (command: `nbx data harmonise ... --label-rule <rule>`):
+
+| | majority | strict | any_positive |
+|---|---|---|---|
+| pairs | 49,395 | 46,608 | 50,782 |
+| alleles | 147 | 146 | 152 |
+| positive / negative | 13,107 / 36,288 | 10,925 / 35,683 | 15,099 / 35,683 |
+
+50,782 pairs reached the rule: 10,925 unanimous positive, 35,683 unanimous negative,
+4,174 mixed, of which 1,387 are ties. The `strict` artefact has exactly the
+(peptide, allele, label) set of the earlier artefact (regression guard).
+
+**Verified.** `repro-verifier` re-ran all three commands (hashes and parquet bytes
+identical), recomputed every count from the raw export with independent code
+(agreement exact), checked majority and any-positive semantics on random mixed pairs,
+confirmed both reconciliation identities, and confirmed the tamper check raises.
+
+**Caveats found.**
+- Majority is over assay rows, not independent studies. 692 of 2,787 majority-decided
+  pairs have all rows in one PMID group; a per-paper majority differs on 23 pairs and
+  ties on 309. 22,223 pairs have no PMID.
+- `records_without_reference_pmid` actually counts pairs; the name is misleading.
+- Drop-reason names for two alleles reasons changed meaning, so drop tables from
+  before and after this stage are not directly comparable.
+- `artefacts/bias/iedb_tcell.bias.json` was computed on the pre-rule artefact and has
+  not been re-run on the primary `majority` artefact.
+
+**New findings that need your decision.**
+1. *Assay-type scope.* The IEDB export contains 314 distinct assay types, including
+   pMHC-multimer binding rows recorded as "qualitative binding", which are not T cell
+   functional responses. `assay_type` carries the most information about the label of
+   the profiled variables. Whether to restrict to functional immunogenicity assays is
+   a scoping decision that changes the corpus; it is not made here.
+2. *The ImmuBPI immunogenicity corpus is usable as a second source.* Downloaded from
+   Zenodo 18610279 (md5 matches the record; download only, nothing vendored).
+   `deepneo_tcr_10fold.csv` has 19,933 rows, 18,866 pairs, 136 alleles, 5,426
+   positive and 14,507 negative, with a `source` column. Only 19 pairs carry
+   conflicting labels (our raw export has 4,174), so it is curated differently. The
+   positive fraction differs strongly by source (for example 0.038 for Bobisse, 0.167
+   for IEDB, 0.514 for IMMA2, 0.946 for Calis) and 76 of the 136 alleles occur in more
+   than one source, so the cross-source contrast of imbalance can be tested within it.
+   Its allele names use another convention (`HLA-A-0201`). Licence still unresolved:
+   GitHub says MIT, Zenodo says Apache-2.0.
+
+**Housekeeping.** `PROMPTS.md` has a one-line change (a blank line) that this work did
+not make; it is not included in these commits.
+
+**Not done.** No split frozen; peptide-grouped splitting not yet built; the second
+corpus is not harmonised; no model; M6 orchestration not started.
