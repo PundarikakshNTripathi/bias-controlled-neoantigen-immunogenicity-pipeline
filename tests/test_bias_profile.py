@@ -40,8 +40,13 @@ def _frame(per_allele_counts: dict[str, tuple[int, int]], source="S1") -> pd.Dat
     for allele, (npos, nneg) in per_allele_counts.items():
         for label, n in ((1, npos), (0, nneg)):
             for _ in range(n):
+                # unique per record: the base-20 digits of k, padded to nine residues
                 aa = "ACDEFGHIKLMNPQRSTVWY"
-                pep = "".join(aa[(k * 7 + j * 3) % 20] for j in range(9))
+                digits, n = [], k
+                for _ in range(9):
+                    digits.append(aa[n % 20])
+                    n //= 20
+                pep = "".join(digits)
                 rows.append(_row(pep, allele, label, source=source))
                 k += 1
     return pd.DataFrame(rows)
@@ -269,3 +274,19 @@ def test_cli_profile_refuses_degenerate_corpus_and_writes_nothing(tmp_path):
     result = CliRunner().invoke(app, ["bias", "profile", str(src), "--report", str(out)])
     assert result.exit_code == 1
     assert not out.exists()
+
+
+def test_split_admissibility_is_peptide_grouped_and_reports_quarantine():
+    # analysis_plan.md section 3: all records of a peptide go to one partition, so the
+    # admissibility block must use the grouped splitter and report what it withholds.
+    rows = []
+    for allele in ("HLA-A*01:01", "HLA-A*02:01", "HLA-B*07:02"):
+        for i in range(40):
+            # peptides P0..P39 are shared across all three alleles
+            rows.append(_row(f"PEPTIDE{i:02d}", allele, i % 2))
+    rep = build_bias_report(pd.DataFrame(rows))
+    sa = rep["split_admissibility"]
+    assert sa["group_by"] == "peptide"
+    assert sa["criterion"]["group_by"] == "peptide"
+    assert isinstance(sa["n_quarantined"], int) and sa["n_quarantined"] > 0
+    assert sa["frozen"] is False

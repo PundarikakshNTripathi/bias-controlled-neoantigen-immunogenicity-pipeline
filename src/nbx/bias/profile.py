@@ -185,9 +185,16 @@ def build_bias_report(
     criterion = split_criterion or SplitCriterion(
         min_samples_per_allele=min_records_per_allele
     )
-    split = build_split(df["allele"].tolist(), labels, criterion)
+    # Peptide-grouped, as pre-registered (docs/analysis_plan.md section 3): every record
+    # of a peptide lies in one partition, and records withheld to guarantee that are
+    # quarantined and counted, never moved.
+    split = build_split(
+        df["allele"].tolist(), labels, criterion, groups=df["peptide"].tolist()
+    )
     split_block = {
-        "criterion": json.loads(criterion.canonical_json()),
+        "criterion": json.loads(split.criterion.canonical_json()),
+        "group_by": split.criterion.group_by,
+        "n_quarantined": len(split.quarantined_idx),
         "n_admitted_alleles": len(split.admitted_alleles),
         "n_reported_separately": len(split.reported_separately),
         "admitted_alleles": list(split.admitted_alleles),
