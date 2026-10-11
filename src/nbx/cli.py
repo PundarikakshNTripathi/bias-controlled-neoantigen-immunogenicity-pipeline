@@ -388,13 +388,113 @@ def evaluate(
     run: Path = typer.Option(Path("artefacts/runs"), "--run"),
     split: str = typer.Option(..., "--split", help="Frozen split content hash."),
     protocol: str = typer.Option("bias-controlled", "--protocol"),
+    out: Path | None = typer.Option(
+        None, "--out", help="Also write the content-hashed JSON report here."
+    ),
+    records_digest: str | None = typer.Option(
+        None,
+        "--records-digest",
+        help="Pin the records digest (sha256 of per-record allele, label, peptide). "
+             "Without it the digest only detects an inconsistent split.json.",
+    ),
 ) -> None:
     """Evaluate under the bias-controlled protocol.
 
     Verifies R1 to R4, then reports allele-stratified metrics, shortcut
     dependence and the margin over the HLA-only control for every variant.
+    The bootstrap is always the pre-registered one (B and seed are not options).
+    A refusal is a non-zero exit and prints no metric.
     """
-    _unbuilt("nbx.evaluate.protocol")
+    from nbx.evaluate import protocol as proto
+
+    if protocol != "bias-controlled":
+        console.print(f"unknown protocol: {protocol!r}", style="red", markup=False)
+        raise typer.Exit(code=2)
+    try:
+        result = proto.run_protocol(
+            run,
+            split,
+            expected_records_digest=records_digest,
+            n_boot=proto.PRODUCTION_N_BOOT,
+            bootstrap_seed=proto.DEFAULT_BOOTSTRAP_SEED,
+        )
+    except proto.ProtocolRefusal as exc:
+        console.print(f"protocol refused: {exc}", style="red", markup=False)
+        raise typer.Exit(code=1) from exc
+
+    def note(text: str) -> None:
+        console.print(text, style="dim", markup=False)
+
+    table = Table(
+        title="bias-controlled evaluation (mean, across-seed SD)",
+        show_header=True,
+        header_style="bold",
+    )
+    for col in ("Variant", "Role", "Gate", "Rank", "AUPRC", "Margin vs HLA-only",
+                "kappa"):
+        table.add_column(col)
+    for name, v in result["variants"].items():
+        shown = v["metrics"]["displayed"]
+        auprc_cell = UNMEASURED
+        margin_cell = v.get("margin_vs_hla_only", {}).get("rendered", "control row")
+        kappa_cell = UNMEASURED
+        if shown:
+            m = v["metrics"]["pooled"]["auprc"]
+            auprc_cell = f"{m['mean']} +/- {m['sd']}"
+            kappa_cell = v["shortcut_dependence"]["kappa_mean"]
+        table.add_row(name, v["role"], v["gate"]["status"], str(v["rank"]),
+                      auprc_cell, margin_cell, kappa_cell)
+    console.print(table)
+
+    ts = result["test_set"]
+    note(f"{ts['n_alleles']} test alleles, {ts['n_records']} test records")
+    for name, v in result["variants"].items():
+        if v["role"] not in ("model", "baseline"):
+            continue
+        note(f"{name}: {v['gate']['reason']}")
+        if not v["metrics"]["displayed"]:
+            note(f"{name}: metrics withheld (gate status pending)")
+            continue
+        sd = v["shortcut_dependence"]
+        if v.get("reference_only"):
+            note(f"{name}: reference_only; baseline kappa {sd['kappa_mean']}; "
+                 "never ranked")
+            continue
+        h, p = v["margin_vs_hla_only"], v["margin_vs_peptide_only"]
+        change = sd["abs_kappa_change"]
+        note(f"{name}: kappa {sd['kappa_mean']}; baseline kappa {sd['baseline_kappa']}; "
+             f"kappa change upper95 {change['upper95_one_sided']} "
+             f"(non-inferiority margin {change['noninferiority_margin']})")
+        note(f"{name}: HLA-only margin p {h['p_value']}, Holm-adjusted "
+             f"{h.get('p_value_holm', UNMEASURED)}, 90% interval "
+             f"[{h['ci90_low']}, {h['ci90_high']}]")
+        note(f"{name}: peptide-only margin {p['rendered']}, p {p['p_value']}, "
+             f"90% interval [{p['ci90_low']}, {p['ci90_high']}], "
+             f"significantly worse: {p['significantly_worse']}")
+    match = result["matching"]
+    ver = match["structurally_verified"]
+    note("matching: declared in config.json and compared, not verified: "
+         + ", ".join(match["declared_metadata"]))
+    note(f"matching: structurally verified: HLA-only constant within every allele "
+         f"({ver['hla_only']['n_runs_checked']} runs); peptide-only identical on "
+         f"shared peptides ({ver['peptide_only']['n_shared_peptide_groups']} shared "
+         f"groups, {ver['peptide_only']['n_runs_checked']} runs)")
+    rec = result["records"]
+    note(f"split {result['split_hash'][:12]} (definition); records digest "
+         f"{rec['sha256'][:12]} verified against split.json (allele, label, peptide); "
+         f"pinned by caller: {'yes' if rec['pinned_by_caller'] else 'no'}")
+    note(f"{result['n_model_variants_compared']} model variant(s) compared; Holm-"
+         "adjusted p reported beside the unadjusted p")
+    note(f"seeds {result['seeds']}, B={result['bootstrap']['B']}, "
+         f"report {result['report_hash'][:12]}")
+    if not result["preregistered_settings_used"]:
+        note("settings NOT pre-registered in this report")
+    for item in result["not_done"]:
+        note(f"not done: {item}")
+    note(result["notice"])
+    if out is not None:
+        console.print(f"report {proto.write_report(result, out)}", style="green",
+                      markup=False)
 
 
 @app.command()
@@ -433,7 +533,8 @@ def doctor() -> None:
             headline_metric=0.9,
             hla_only_margin=ControlMargin(),
             peptide_only_margin=ControlMargin(delta=0.1, p_value=0.01),
-            kappa=0.0,
+            kappa_change_upper_bound=0.0,
+            peptide_only_significantly_worse=False,
         )
         assert pending.status is GateStatus.PENDING
         assert not pending.displayable_metrics
