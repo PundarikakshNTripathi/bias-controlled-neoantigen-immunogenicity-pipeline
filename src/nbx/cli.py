@@ -87,20 +87,45 @@ def data_harmonise(
         help="Allele -> 34-residue pseudo-sequence table (NAME SEQUENCE per line).",
     ),
     out: Path = typer.Option(Path("artefacts/datasets"), "--out"),
-    name: str = typer.Option("iedb_tcell", "--name", help="Artefact base name."),
+    label_rule: str = typer.Option(
+        None,
+        "--label-rule",
+        help="Pair label rule: majority (primary), strict or any_positive. "
+             "Part of the hashed criterion, so each rule is its own artefact.",
+    ),
+    name: str = typer.Option(
+        None,
+        "--name",
+        help="Artefact base name. Defaults to iedb_tcell_<label-rule>.",
+    ),
 ) -> None:
     """Ingest public corpora into one canonical, content-hashed dataset.
 
-    This pass ingests the IEDB T cell export only. Every number printed below
-    is read off the frame that was just built; none is a constant.
+    This pass ingests the IEDB T cell export only. One output row is one
+    (peptide, allele) pair. Every number printed below is read off the frame
+    that was just built; none is a constant.
     """
-    from nbx.data.harmonise import HarmonisationError, harmonise
+    from nbx.data.harmonise import (
+        DEFAULT_LABEL_RULE,
+        LABEL_RULES,
+        HarmonisationError,
+        harmonise,
+    )
+
+    rule = label_rule or DEFAULT_LABEL_RULE
+    if rule not in LABEL_RULES:
+        console.print(
+            f"[red]unknown label rule:[/red] {rule!r}. "
+            f"Choose one of {list(LABEL_RULES)}."
+        )
+        raise typer.Exit(code=1)
 
     try:
         corpus, paths = harmonise(
             {"iedb_tcell": iedb_tcell, "mhc_pseudo": mhc_pseudo},
             out_dir=out,
             name=name,
+            label_rule=rule,
         )
     except HarmonisationError as exc:
         console.print(f"[red]harmonisation refused:[/red] {exc}")
@@ -112,7 +137,10 @@ def data_harmonise(
     summary = Table(title="canonical corpus", show_header=True, header_style="bold")
     summary.add_column("Quantity")
     summary.add_column("Value", justify="right")
-    summary.add_row("records", f"{len(frame):,}")
+    summary.add_row("label rule", report["label_rule"])
+    summary.add_row("unit of analysis", report["unit_of_analysis"])
+    summary.add_row("pairs (records)", f"{len(frame):,}")
+    summary.add_row("peptides", f"{frame['peptide'].nunique():,}")
     summary.add_row("alleles", f"{frame['allele'].nunique():,}")
     summary.add_row("content hash", corpus.short_hash)
     for label, count in sorted(report["label_counts"].items()):
@@ -125,13 +153,46 @@ def data_harmonise(
         "excluded for length", f"{report['peptides_excluded_for_length']:,}"
     )
     summary.add_row(
-        "duplicates merged", f"{report['duplicate_records_merged']:,}"
+        "assay records collapsed into pairs",
+        f"{report['duplicate_records_merged']:,}",
     )
     summary.add_row(
-        "label-conflict pairs dropped",
-        f"{report['label_conflict_pairs_dropped']:,}",
+        "pairs dropped by the label rule",
+        f"{report['pairs_dropped_by_label_rule']:,}",
     )
     console.print(summary)
+
+    patterns = report["pair_pattern_summary"]
+    pattern_table = Table(
+        title="pair disagreement pattern (every pair that reached the rule)",
+        show_header=True,
+        header_style="bold",
+    )
+    pattern_table.add_column("Pattern")
+    pattern_table.add_column("Pairs", justify="right")
+    for key in ("unanimous_positive", "unanimous_negative", "mixed", "tied"):
+        pattern_table.add_row(key, f"{patterns[key]:,}")
+    pattern_table.add_row("total", f"{patterns['pairs_total']:,}")
+    console.print(pattern_table)
+    console.print(f"[dim]{patterns['note']}[/dim]")
+
+    rec = report["reconciliation"]
+    recon = Table(title="reconciliation", show_header=True, header_style="bold")
+    recon.add_column("Quantity")
+    recon.add_column("Value", justify="right")
+    for key in (
+        "raw_row_count",
+        "records_dropped_record_level",
+        "records_dropped_pair_level",
+        "records_collapsed_into_pairs",
+        "pairs_labelled",
+        "pairs_dropped",
+        "pairs_total",
+    ):
+        recon.add_row(key, f"{rec[key]:,}")
+    recon.add_row("record level balances", str(rec["record_level_balances"]))
+    recon.add_row("pair level balances", str(rec["pair_level_balances"]))
+    console.print(recon)
 
     lengths = Table(title="peptide length", show_header=True, header_style="bold")
     lengths.add_column("Length")
@@ -164,6 +225,26 @@ def data_harmonise(
     ):
         drops.add_row(reason, f"{count:,}")
     console.print(drops)
+
+    absent = report["alleles_absent_from_pseudo_sequence_table"]
+    gap = Table(
+        title=(
+            f"alleles resolved but absent from the pseudo-sequence table "
+            f"({absent['n_alleles']:,} alleles, {absent['n_records']:,} records; "
+            f"top {absent['n_listed']:,} by records)"
+        ),
+        show_header=True,
+        header_style="bold",
+    )
+    gap.add_column("Allele")
+    gap.add_column("Records dropped", justify="right")
+    # An empty table here is a measured empty set (the counts in the title say
+    # so), not an unmeasured quantity, so it is left empty rather than filled
+    # with em dashes.
+    for entry in absent["alleles"]:
+        gap.add_row(entry["allele"], f"{entry['records']:,}")
+    console.print(gap)
+    console.print(f"[dim]{absent['note']}[/dim]")
 
     comparison = report["reference_comparison"]
     refs = Table(
