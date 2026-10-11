@@ -202,7 +202,71 @@ def bias_profile(
     Runs BEFORE any model is trained. Its output conditions the modelling and
     evaluation layers rather than merely annotating their results.
     """
-    _unbuilt("nbx.bias.profile (diagnostics built; CLI wiring pending)")
+    import hashlib
+
+    import pandas as pd
+
+    from nbx.bias.profile import BiasReportError, build_bias_report, write_bias_report
+
+    if not dataset.exists():
+        console.print(f"[red]dataset not found:[/red] {dataset}")
+        raise typer.Exit(code=1)
+    try:
+        frame = pd.read_parquet(dataset)
+        result = build_bias_report(
+            frame,
+            input_path=str(dataset),
+            input_sha256=hashlib.sha256(dataset.read_bytes()).hexdigest(),
+        )
+        written = write_bias_report(result, report)
+    except BiasReportError as exc:
+        console.print(f"[red]bias profile refused:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    mi = Table(title="I(b;y): bias candidates, not verdicts", header_style="bold")
+    mi.add_column("Variable")
+    mi.add_column("I (nats)", justify="right")
+    mi.add_column("Share of H(y)", justify="right")
+    mi.add_column("Note")
+    for name, row in result["mutual_information"].items():
+        note = ""
+        if row["structurally_uninformative"]:
+            note = "single-valued: zero by construction"
+        mi.add_row(
+            name,
+            render_metric(row["nats"]),
+            render_metric(row["share_of_label_entropy"]),
+            note,
+        )
+    console.print(mi)
+
+    rho = result["per_allele_rho"]
+    pol = result["masking_policy"]
+    split = result["split_admissibility"]
+    summary = Table(title="corpus", header_style="bold")
+    summary.add_column("Quantity")
+    summary.add_column("Value", justify="right")
+    summary.add_row("records", f"{result['n_records']:,}")
+    summary.add_row("alleles", f"{result['n_alleles']:,}")
+    summary.add_row("alleles with rho", f"{rho['n_alleles_with_rho']:,}")
+    summary.add_row("alleles beyond 10:1", f"{rho['n_beyond_10_to_1']:,}")
+    summary.add_row(
+        "alleles excluded (single sample)", f"{rho['n_excluded_single_sample']:,}"
+    )
+    summary.add_row(
+        "policy scope: 9-mers, alleles with enough records",
+        f"{pol['n_alleles_in_scope']:,} of {pol['n_alleles_total']:,} alleles, "
+        f"{pol['n_records_in_scope']:,} of {pol['n_records_total']:,} records",
+    )
+    summary.add_row(
+        "policy: alleles with a non-empty mask", str(pol["n_alleles_nonempty_mask"])
+    )
+    summary.add_row(
+        "split: admitted / separate",
+        f"{split['n_admitted_alleles']:,} / {split['n_reported_separately']:,}",
+    )
+    console.print(summary)
+    console.print(f"[green]report[/green] {written}")
 
 
 @split_app.command("freeze")
