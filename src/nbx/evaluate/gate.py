@@ -10,8 +10,23 @@ this project can display a result that has not passed that rule. The gate is
 evaluated at the data-access layer, so a view added later cannot bypass it by
 forgetting to check.
 
-The four reachable states are enumerated in `GateStatus` and tested as a
-truth table. There is deliberately no "force" or "override" argument.
+The burden of proof is on the model (decision D4). PASSED requires all of:
+
+    (i)   a significant margin over the matched HLA-only control;
+    (ii)  the upper 95% bound of [ |kappa_model| - |kappa_baseline| ] is at most
+          NONINFERIORITY_MARGIN_KAPPA, so a model must be shown NOT to be more
+          shortcut-dependent than the baseline, not merely not shown to be;
+    (iv)  the model is not significantly worse than its peptide-only control.
+
+Condition (iii), an absolute ceiling on |kappa_model|, is NOT implemented. Its
+value is a scientific judgement that belongs to the researcher and has not been
+given; there is no parameter and no default for it. Until it exists, a model
+exactly as shortcut-dependent as its baseline, with a degenerate zero-width
+interval, is not stopped by (ii) alone.
+
+The five reachable states are enumerated in `GateStatus` and tested as a truth
+table. There is deliberately no "force" or "override" argument, and the
+non-inferiority margin is a module constant, not a per-call argument.
 """
 
 from __future__ import annotations
@@ -21,6 +36,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 __all__ = [
+    "NONINFERIORITY_MARGIN_KAPPA",
     "GateStatus",
     "ControlMargin",
     "GateResult",
@@ -28,6 +44,12 @@ __all__ = [
     "UNMEASURED",
     "render_metric",
 ]
+
+NONINFERIORITY_MARGIN_KAPPA: float = 0.0
+"""Pre-registered default (analysis plan, decision D4): the largest upper 95% bound
+of the change in |kappa| relative to the baseline that still counts as "not more
+shortcut-dependent". Zero means the interval must lie at or below no increase.
+Changing it changes the rule and needs the researcher's approval."""
 
 # What an unmeasured quantity renders as, everywhere, without exception.
 UNMEASURED = "—"  # em dash
@@ -48,7 +70,13 @@ def render_metric(value: float | None, digits: int = 4) -> str:
 
 
 class GateStatus(str, Enum):
-    """The states a model variant can be in."""
+    """The states a model variant can be in.
+
+    Condition (iv), significantly worse than the peptide-only control, is
+    reported under FAILED_SHORTCUT together with condition (ii). That is a
+    design choice for the researcher to ratify; the reason string names which
+    condition failed.
+    """
 
     PENDING = "pending"
     """A mandated null control is missing, or a required metric is unmeasured."""
@@ -57,10 +85,14 @@ class GateStatus(str, Enum):
     """Controls present; the margin over the HLA-only control is not significant."""
 
     FAILED_SHORTCUT = "failed_shortcut"
-    """Margin is significant, but shortcut dependence rose. Reported, not ranked."""
+    """Margin is significant, but condition (ii) (shortcut dependence not shown to
+    be no higher than the baseline's) or condition (iv) (significantly worse than
+    the peptide-only control) failed. Reported, not ranked. DESIGN CHOICE for the
+    researcher to ratify: (iv) is reported under this status rather than under a
+    sixth one, and the reason string names which condition failed."""
 
     PASSED = "passed"
-    """Discrimination improved and shortcut dependence did not rise."""
+    """Discrimination improved and shortcut dependence was shown not to rise."""
 
     CONTROL = "control"
     """This row is itself a null control; it is never ranked."""
@@ -122,9 +154,8 @@ def evaluate_gate(
     headline_metric: float | None = None,
     hla_only_margin: ControlMargin | None = None,
     peptide_only_margin: ControlMargin | None = None,
-    kappa: float | None = None,
-    baseline_kappa: float | None = None,
-    kappa_tolerance: float = 0.0,
+    kappa_change_upper_bound: float | None = None,
+    peptide_only_significantly_worse: bool | None = None,
 ) -> GateResult:
     """Apply the acceptance rule to one model variant.
 
@@ -136,18 +167,23 @@ def evaluate_gate(
     headline_metric
         The discrimination metric (AUPRC by default). None means unmeasured.
     hla_only_margin
-        Margin over the mandatory HLA-only control. Required.
+        Margin over the mandatory HLA-only control. Required. Condition (i).
     peptide_only_margin
-        Margin over the peptide-only control. Required to be present, but its
-        significance does not gate the result: it is diagnostic context.
-    kappa
-        Shortcut dependence of this variant.
-    baseline_kappa
-        Shortcut dependence of the comparison baseline (usually the
-        undebiased model). The rule asks whether kappa ROSE relative to it.
-    kappa_tolerance
-        Slack allowed before an increase counts as a rise. Defaults to zero;
-        raise it only with a stated, documented justification.
+        Margin over the peptide-only control. Required to be present as proof
+        that the control was run; whether the model is significantly WORSE is
+        carried by `peptide_only_significantly_worse`.
+    kappa_change_upper_bound
+        Upper 95% bound of |kappa_model| - |kappa_baseline|, computed by the
+        evaluation harness (an allele-clustered bootstrap). Condition (ii) is
+        `kappa_change_upper_bound <= NONINFERIORITY_MARGIN_KAPPA`. None means
+        the interval was not measured, which blocks a pass.
+    peptide_only_significantly_worse
+        True when the harness found the model significantly worse than the
+        peptide-only control (one-sided, alpha 0.05, opposite tail). Condition
+        (iv). None means the comparison was not made, which blocks a pass.
+
+    Condition (iii), an absolute ceiling on |kappa_model|, is not implemented;
+    see the module docstring.
 
     Returns
     -------
@@ -185,7 +221,7 @@ def evaluate_gate(
             rankable=False,
         )
 
-    # --- the margin must be significant -----------------------------------
+    # --- (i) the margin must be significant -------------------------------
     hla_margin: ControlMargin = hla_only_margin
     if not hla_margin.significant:
         return GateResult(
@@ -198,33 +234,55 @@ def evaluate_gate(
             rankable=False,
         )
 
-    # --- shortcut dependence must not have risen --------------------------
-    if kappa is None:
+    # --- the shortcut conditions need their inputs ------------------------
+    if kappa_change_upper_bound is None:
         return GateResult(
             status=GateStatus.PENDING,
-            reason="Shortcut dependence kappa has not been measured.",
+            reason=(
+                "The interval for the change in shortcut dependence kappa has "
+                "not been measured."
+            ),
+            rankable=False,
+        )
+    if peptide_only_significantly_worse is None:
+        return GateResult(
+            status=GateStatus.PENDING,
+            reason="The comparison with the peptide-only control has not been made.",
             rankable=False,
         )
 
-    if baseline_kappa is not None and (
-        abs(kappa) > abs(baseline_kappa) + kappa_tolerance
-    ):
+    failed = []
+    if kappa_change_upper_bound > NONINFERIORITY_MARGIN_KAPPA:
+        failed.append(
+            "condition (ii): the upper 95% bound of the change in |kappa| over "
+            f"the baseline is {kappa_change_upper_bound:+.4f}, above the "
+            f"non-inferiority margin {NONINFERIORITY_MARGIN_KAPPA:+.4f}; shortcut "
+            "dependence is not shown to be no higher than the baseline's"
+        )
+    if peptide_only_significantly_worse:
+        failed.append(
+            "condition (iv): the model is significantly worse than the "
+            "peptide-only control"
+        )
+    if failed:
         return GateResult(
             status=GateStatus.FAILED_SHORTCUT,
             reason=(
                 f"Discrimination improved ({hla_margin.render()}) but "
-                f"shortcut dependence rose: |kappa| {abs(kappa):.4f} > "
-                f"|baseline| {abs(baseline_kappa):.4f}. "
-                "Reported as not surviving the controls."
+                + "; and ".join(failed)
+                + ". Reported as not surviving the controls."
             ),
             rankable=False,
-            )
+        )
 
     return GateResult(
         status=GateStatus.PASSED,
         reason=(
-            f"Exceeds the HLA-only control ({hla_margin.render()}) "
-            f"without raising shortcut dependence (kappa={kappa:.4f})."
+            f"Exceeds the HLA-only control ({hla_margin.render()}); the upper "
+            "95% bound of the change in |kappa| over the baseline is "
+            f"{kappa_change_upper_bound:+.4f} (margin "
+            f"{NONINFERIORITY_MARGIN_KAPPA:+.4f}); not significantly worse than "
+            "the peptide-only control."
         ),
         rankable=True,
     )
