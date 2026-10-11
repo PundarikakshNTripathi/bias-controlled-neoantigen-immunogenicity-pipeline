@@ -235,3 +235,46 @@ not make; it is not included in these commits.
 
 **Not done.** No split frozen; peptide-grouped splitting not yet built; the second
 corpus is not harmonised; no model; M6 orchestration not started.
+
+---
+
+## 2026-10-11 (later) — peptide-grouped splitter and M2 on all three corpora
+
+**Built.** `build_split(..., groups=peptide)` in `nbx.splits.freeze`: no peptide in more
+than one of train, validation and test; records withheld to guarantee that are
+quarantined and counted, never moved. `SplitCriterion.group_by` is part of the hash
+when set; ungrouped hashes are byte-identical to before (pinned in tests, and
+confirmed against the original code in 12 cases). 23 tests in
+`tests/test_splits_grouped.py`; `scripts/measure_grouped_split.py` measures without
+freezing. `nbx bias profile` now computes split admissibility with the grouped
+splitter. 163 tests pass.
+
+**Measured** on `iedb_tcell_majority` (49,395 pairs): ungrouped splitting puts 4,299
+peptides (16,877 records) in more than one partition and 1,958 test peptides also in
+train or validation; grouped splitting puts 0. Grouped: train 30,944, validation
+6,631, test 6,475, quarantined 5,345 (959 positive, 4,386 negative); 69 alleles
+admitted, 78 reported separately; the number admitted is unchanged by grouping.
+`repro-verifier` recomputed these from the index tuples, found no counterexample in
+400 random adversarial corpora, and confirmed determinism across `PYTHONHASHSEED`
+values.
+
+**Caveats.**
+- The smallest admitted allele has 3 test records; nothing enforces a minimum
+  test-block size (the 20-sample minimum applies to the allele's corpus total).
+- Quarantine is label-skewed, so the train and validation positive rate rises
+  relative to the corpus.
+- Only exact-peptide leakage is removed; near-identical peptides are not.
+- Group labels are not validated: NaN or None groups, or `1` versus `"1"`, are not
+  rejected. Real peptides have none of these (30,921 unique raw and after strip and
+  upper, no nulls), but the builder should raise on them.
+- On the real, pair-level corpus every (allele, peptide) cell holds one record, so the
+  whole-group selection path is exercised only by the synthetic tests.
+
+**M2 on all three rules** (README table). The strict-rule run reproduces the earlier
+figures exactly (48 of 124 alleles beyond 10:1). Primary `majority`: 45 of 124.
+
+**Decisions still needed from you.** (1) Whether to restrict to functional T cell
+assay types; (2) whether to enforce a minimum test-block size per admitted allele
+(this changes the split criterion and its hash); (3) approval to freeze a split;
+(4) approval of the shortcut-dependence tolerance (gate rule change); (5) approval
+to push.

@@ -167,32 +167,53 @@ Caveats that bear on interpretation:
 ### M2: bias profile of the IEDB T cell corpus
 
 ```bash
-nbx bias profile artefacts/datasets/iedb_tcell_strict.parquet --report artefacts/bias/iedb_tcell.bias.json
+nbx bias profile artefacts/datasets/iedb_tcell_majority.parquet --report artefacts/bias/iedb_tcell_majority.bias.json
 ```
 
-The report records the input file's sha256 and is byte-for-byte reproducible. The run
-below used the earlier artefact whose (peptide, allele, label) set is identical to the
-`strict` artefact above (46,608 pairs, 146 alleles). It has not been repeated on the
-primary `majority` artefact, whose allele set differs by one allele. Read from the run
-of 2026-10-11:
+The report records the input file's sha256 and is byte-for-byte reproducible. Run on
+2026-10-11 for each label rule:
 
-- Of 146 alleles, 124 have a defined imbalance ratio (22 single-sample alleles are
-  excluded), and 48 of those 124 lie beyond 10:1 in either direction. The published
-  claim is that more than half of alleles do (Zhang et al. 2026, as summarised in the
-  project synopsis); on this filtered, single-source corpus the fraction is lower, so
-  that figure is not reproduced here. Contrasting ratios across datasets cannot be
-  tested with one source.
-- Mutual information with the label is reported as a bias candidate signal, not a
-  verdict. No variable exceeds a quarter of the label entropy. `source_dataset` is
-  zero by construction because the corpus has one source, and the `assay_type`
-  figure is inflated by many rare values.
-- The adaptive masking policy was computed for 9-mers over 61 of the 146 alleles.
-  Its threshold is chosen on the same corpus (no frozen validation split exists) and
-  plug-in mutual information is inflated for small allele subsets, so the policy
-  block is exploratory. No hypothesis (H1 to H4) has been evaluated.
+| Quantity | majority | strict | any_positive |
+|---|---|---|---|
+| Alleles with a defined imbalance ratio | 124 | 124 | 126 |
+| Of those, beyond 10:1 in either direction | 45 | 48 | 48 |
+| I(allele; y) as a share of H(y) | 0.197 | 0.201 | 0.199 |
+| I(assay type; y) as a share of H(y) | 0.261 | 0.224 | 0.272 |
+| Masking-policy scope (alleles / records) | 61 / 29,872 | 61 / 27,923 | 61 / 30,737 |
+| Alleles with a non-empty adaptive mask | 18 | 17 | 20 |
+| Split: admitted / reported separately | 69 / 78 | 67 / 79 | 70 / 82 |
+| Split: test records / quarantined records | 6,475 / 5,345 | 5,992 / 5,064 | 6,718 / 5,610 |
 
-Split admissibility is reported in memory at the default criterion; no split has been
-frozen.
+- The published claim is that more than half of alleles exceed a tenfold ratio (Zhang
+  et al. 2026, as summarised in the project synopsis). Here it is 45 of 124 for the
+  primary rule, on a filtered single-source corpus, so that figure is not reproduced.
+  Contrasting ratios across datasets cannot be tested with one source.
+- Mutual information with the label is a bias candidate signal, not a verdict. No
+  variable exceeds a quarter of the label entropy for `majority` except `assay_type`
+  (0.261), whose value is inflated because most of its 314 values are rare, and which
+  mixes assays of different meaning. `source_dataset` is zero by construction.
+- The adaptive masking policy covers 9-mers for 61 of the 147 alleles. Its threshold is
+  chosen on the corpus being profiled, and plug-in mutual information is inflated for
+  small allele subsets, so the policy block is exploratory.
+- The split block is computed in memory with peptide grouping (all records of a
+  peptide in one partition). Records withheld to guarantee that are quarantined and
+  counted, never moved. No split has been frozen.
+- The smallest admitted allele has 3 test records, so per-allele test statistics can be
+  very noisy; nothing yet enforces a minimum test-block size.
+- No hypothesis (H1 to H4) has been evaluated.
+
+#### Why splits are grouped by peptide
+
+In the `majority` corpus 6,832 of 30,921 peptides occur under more than one allele
+(25,306 of 49,395 records). A record-level split shuffles within allele and does not
+see the peptide: measured on this corpus it places 4,299 peptides (16,877 records) in
+more than one of train, validation and test, and 1,958 test peptides also occur in
+train or validation. That lets any peptide-aware model, and the peptide-only control,
+score test records by recognising training peptides. The grouped split has none
+(`scripts/measure_grouped_split.py`). Its cost is 5,345 records (10.8%) withheld from
+train and validation, of which 959 are positive and 4,386 negative, so the withheld
+set is not label-neutral. Near-identical but non-identical peptides can still cross
+partitions; only exact peptide leakage is removed.
 
 ---
 
