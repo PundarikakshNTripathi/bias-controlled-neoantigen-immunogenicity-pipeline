@@ -19,6 +19,31 @@ FR-05  Emit a content-hashed, frozen canonical dataset.
 FR-06  Reproduce published dataset statistics where a reference exists; document
        any discrepancy rather than quietly matching.
 
+The unit of analysis
+--------------------
+One canonical row is one **(peptide, allele) pair**, not one assay row. Rows
+that share a pair are repeated measurements of one observation (analysis plan,
+section 2), so every pair carries `n_assay_records`,
+`n_positive_assay_records` and `positive_fraction` alongside the union of its
+records' provenance.
+
+A pair whose assay records disagree has to be labelled by a rule, and the rule
+changes the corpus. The three pre-registered rules are selected by
+`label_rule`, which is part of the hashed criterion, so each rule is a
+separate artefact:
+
+* `majority` (the pre-registered PRIMARY rule): positive when more than half of
+  the pair's assay records are positive, negative when more than half are
+  negative, dropped under `pair_label_tie` otherwise.
+* `strict` (sensitivity analysis (a)): every pair whose assay records disagree
+  is dropped under `duplicate_label_conflict`.
+* `any_positive` (sensitivity analysis (c)): positive when any assay record is
+  positive. No pair is dropped.
+
+Choosing between them on the basis of a downstream result is exactly the
+failure this project is about; the primary rule is fixed in
+`docs/analysis_plan.md` before any model exists.
+
 Hard rules
 ----------
 * A record without provenance is dropped, never defaulted. Positive-to-negative
@@ -40,7 +65,8 @@ several checks is counted in, and therefore what every drop count MEANS.
 
     missing_provenance -> epitope object type -> modified residues ->
     MHC class -> allele reconciliation -> pseudo-sequence availability ->
-    peptide alphabet/length -> label mappability -> dedup
+    peptide alphabet/length -> label mappability -> pair collapse ->
+    pair label rule
 
 Two choices in that order are deliberate:
 
@@ -86,6 +112,12 @@ __all__ = [
     "CANONICAL_COLUMNS",
     "DROP_REASONS",
     "SOURCE_IEDB_TCELL",
+    "LABEL_RULE_MAJORITY",
+    "LABEL_RULE_STRICT",
+    "LABEL_RULE_ANY_POSITIVE",
+    "LABEL_RULES",
+    "DEFAULT_LABEL_RULE",
+    "LABEL_RULE_DESCRIPTIONS",
     "Provenance",
     "PseudoSequenceTable",
     "PseudoSequenceRegistry",
@@ -95,12 +127,15 @@ __all__ = [
     "HarmonisationError",
     "DegenerateCorpusError",
     "ArtefactHashConflictError",
+    "ArtefactIntegrityError",
     "UnsupportedSourceError",
+    "UnknownLabelRuleError",
     "compare_to_references",
     "read_iedb_tcell",
     "harmonise_frame",
     "write_corpus",
     "harmonise",
+    "default_artefact_name",
 ]
 
 PEPTIDE_MIN_LENGTH = 8
@@ -164,12 +199,56 @@ RAW_COLUMNS: tuple[str, ...] = (
     "MHC Restriction|Class",
 )
 
+# --------------------------------------------------------------------------
+# The pre-registered label rules (docs/analysis_plan.md, section 2).
+# `majority` is the primary; the other two are the declared sensitivity
+# analyses. The rule is part of the hashed criterion, so switching rules
+# produces a different artefact rather than quietly replacing one.
+# --------------------------------------------------------------------------
+LABEL_RULE_MAJORITY = "majority"
+LABEL_RULE_STRICT = "strict"
+LABEL_RULE_ANY_POSITIVE = "any_positive"
+
+LABEL_RULES: tuple[str, ...] = (
+    LABEL_RULE_MAJORITY,
+    LABEL_RULE_STRICT,
+    LABEL_RULE_ANY_POSITIVE,
+)
+
+DEFAULT_LABEL_RULE = LABEL_RULE_MAJORITY
+"""The primary rule, fixed in the pre-registration before any model existed."""
+
+LABEL_RULE_DESCRIPTIONS: dict[str, str] = {
+    LABEL_RULE_MAJORITY: (
+        "majority vote over the pair's assay records; positive when more than "
+        "half are positive, negative when more than half are negative, pair "
+        "dropped as a tie otherwise (PRIMARY, pre-registered)"
+    ),
+    LABEL_RULE_STRICT: (
+        "every pair whose assay records disagree is dropped (sensitivity "
+        "analysis (a))"
+    ),
+    LABEL_RULE_ANY_POSITIVE: (
+        "a pair is positive when any of its assay records is positive "
+        "(sensitivity analysis (c))"
+    ),
+}
+
+PAIR_DROP_REASON_BY_RULE: dict[str, str] = {
+    LABEL_RULE_MAJORITY: "pair_label_tie",
+    LABEL_RULE_STRICT: "duplicate_label_conflict",
+}
+"""The reason each rule may give for dropping a pair. `any_positive` drops none."""
+
 CANONICAL_COLUMNS: tuple[str, ...] = (
     "peptide",
     "peptide_length",
     "allele",
     "allele_pseudoseq",
     "label",
+    "n_assay_records",
+    "n_positive_assay_records",
+    "positive_fraction",
     "source_dataset",
     "assay_type",
     "negative_sample_origin",
@@ -198,8 +277,10 @@ DROP_REASONS: tuple[str, ...] = (
     "mhc_class_not_i",
     *ALLELE_DROP_REASONS,
     "allele_two_digit_mapping_ambiguous",
+    "allele_not_in_pseudo_sequence_table",
     "allele_pseudo_sequence_unavailable",
     "duplicate_label_conflict",
+    "pair_label_tie",
 )
 
 FILTER_ORDER: tuple[str, ...] = (
@@ -211,7 +292,8 @@ FILTER_ORDER: tuple[str, ...] = (
     "pseudo_sequence_availability",
     "peptide_alphabet_and_length",
     "label_mappability",
-    "deduplication",
+    "pair_collapse",
+    "pair_label_rule",
 )
 
 MANDATORY_PROVENANCE_FIELDS: tuple[str, ...] = ("assay_iri", "assay_type")
@@ -222,7 +304,8 @@ derived from the label, so the two raw fields that can actually go missing are
 the assay identifier and the assay method.
 """
 
-_LABEL_CONFLICT_EXAMPLE_LIMIT = 20
+_DROPPED_PAIR_EXAMPLE_LIMIT = 20
+_ABSENT_ALLELE_LIST_LIMIT = 25
 
 
 class HarmonisationError(RuntimeError):
@@ -237,8 +320,48 @@ class ArtefactHashConflictError(HarmonisationError):
     """An artefact of the same name exists with different content."""
 
 
+class ArtefactIntegrityError(HarmonisationError):
+    """A written artefact no longer hashes to the value its report records.
+
+    Raised rather than repaired. A report is a description of a specific
+    parquet; if the parquet has changed underneath it, refreshing the report
+    would attach a true-looking description to an unknown file.
+    """
+
+
 class UnsupportedSourceError(HarmonisationError):
     """A source was requested that this pass does not ingest."""
+
+
+class UnknownLabelRuleError(HarmonisationError):
+    """A label rule was requested that is not one of the pre-registered three."""
+
+
+def _pair_label(rule: str, n_positive: int, n_records: int) -> tuple[int | None, str]:
+    """Apply one label rule to one pair's assay records.
+
+    Returns `(label, drop_reason)`; the label is None exactly when the rule
+    refuses to label the pair, and `drop_reason` is then the named reason.
+    """
+    n_negative = n_records - n_positive
+    if rule == LABEL_RULE_MAJORITY:
+        if n_positive > n_negative:
+            return 1, ""
+        if n_negative > n_positive:
+            return 0, ""
+        return None, PAIR_DROP_REASON_BY_RULE[LABEL_RULE_MAJORITY]
+    if rule == LABEL_RULE_STRICT:
+        if n_negative == 0:
+            return 1, ""
+        if n_positive == 0:
+            return 0, ""
+        return None, PAIR_DROP_REASON_BY_RULE[LABEL_RULE_STRICT]
+    if rule == LABEL_RULE_ANY_POSITIVE:
+        return (1 if n_positive > 0 else 0), ""
+    raise UnknownLabelRuleError(
+        f"unknown label rule {rule!r}; the pre-registered rules are "
+        f"{list(LABEL_RULES)}"
+    )
 
 
 @dataclass(frozen=True)
@@ -328,12 +451,25 @@ class PseudoSequenceRegistry:
         Returns `(sequence, note, drop_reason)`. Exactly one of `sequence` and
         `drop_reason` is not None. `note` always describes what was done, and
         is carried on the record.
+
+        The two failure reasons are kept apart deliberately, because an
+        earlier version conflated them and so reported a table coverage gap as
+        an ambiguity in the input:
+
+        * `allele_not_in_pseudo_sequence_table` - the input WAS resolved to a
+          two-field allele; no table carries it, and its two-digit group does
+          not admit an unambiguous representative. The limit is the table.
+        * `allele_two_digit_mapping_ambiguous` - the input carried only
+          two-digit resolution, and the group it names covers molecules with
+          different contact residues. The limit is the input.
         """
         locus, group = str(resolution.locus), str(resolution.group)
+        protein = resolution.protein
+        fully_resolved = protein is not None
 
-        if resolution.protein is not None:
+        if protein is not None:
             for table in self.tables:
-                found = table.lookup(locus, group, resolution.protein)
+                found = table.lookup(locus, group, protein)
                 if found is not None:
                     return found, f"pseudoseq=direct_lookup:{table.source_name}", None
 
@@ -353,6 +489,17 @@ class PseudoSequenceRegistry:
                     f"; representatives={representatives}"
                 )
                 return distinct[0], note, None
+            if fully_resolved:
+                return (
+                    None,
+                    (
+                        f"pseudoseq=unresolved; {resolution.canonical} is absent "
+                        f"from {table.source_name} and its group {locus}*{group} "
+                        f"carries {len(distinct)} distinct pseudo-sequences there, "
+                        "so no representative may be chosen"
+                    ),
+                    "allele_not_in_pseudo_sequence_table",
+                )
             return (
                 None,
                 (
@@ -363,12 +510,13 @@ class PseudoSequenceRegistry:
                 "allele_two_digit_mapping_ambiguous",
             )
 
-        return (
-            None,
+        unseen = (
             f"pseudoseq=unresolved; no entry for {resolution.canonical} in "
-            + ",".join(self.source_names),
-            "allele_pseudo_sequence_unavailable",
+            + ",".join(self.source_names)
         )
+        if fully_resolved:
+            return None, unseen, "allele_not_in_pseudo_sequence_table"
+        return None, unseen, "allele_pseudo_sequence_unavailable"
 
 
 def read_pseudo_sequence_dat(path: Path, source_name: str) -> PseudoSequenceTable:
@@ -596,7 +744,11 @@ def _clean(value) -> str:
     return str(value).strip()
 
 
-def harmonisation_criterion(source_dataset: str, pseudo_sources: Sequence[str]) -> dict:
+def harmonisation_criterion(
+    source_dataset: str,
+    pseudo_sources: Sequence[str],
+    label_rule: str = DEFAULT_LABEL_RULE,
+) -> dict:
     """The rule set that defines a harmonised corpus, as a hashable dict.
 
     Analogous to `nbx.splits.freeze.SplitCriterion`: it is part of the
@@ -604,9 +756,21 @@ def harmonisation_criterion(source_dataset: str, pseudo_sources: Sequence[str]) 
     rows while meaning different things. In particular the filter order
     decides what every drop count means, so changing it changes the artefact
     even when the retained frame is byte-identical.
+
+    `label_rule` is in here for the same reason: it decides what a pair whose
+    assays disagree is labelled, so each rule must be its own artefact with
+    its own hash.
     """
+    if label_rule not in LABEL_RULES:
+        raise UnknownLabelRuleError(
+            f"unknown label rule {label_rule!r}; the pre-registered rules are "
+            f"{list(LABEL_RULES)}"
+        )
     return {
         "filter_order": list(FILTER_ORDER),
+        "unit_of_analysis": "peptide_allele_pair",
+        "label_rule": label_rule,
+        "label_rule_description": LABEL_RULE_DESCRIPTIONS[label_rule],
         "label_map": {str(k): int(v) for k, v in QUALITATIVE_LABEL_MAP.items()},
         "peptide_length_window": [PEPTIDE_MIN_LENGTH, PEPTIDE_MAX_LENGTH],
         "pseudo_sequence_length": PSEUDO_SEQUENCE_LENGTH,
@@ -614,7 +778,7 @@ def harmonisation_criterion(source_dataset: str, pseudo_sources: Sequence[str]) 
         "epitope_object_type_kept": EPITOPE_OBJECT_TYPE_KEPT,
         "mhc_class_kept": MHC_CLASS_KEPT,
         "mandatory_provenance_fields": list(MANDATORY_PROVENANCE_FIELDS),
-        "duplicate_label_conflict_policy": "drop_pair_and_count",
+        "pair_drop_reason": PAIR_DROP_REASON_BY_RULE.get(label_rule, ""),
         "source_dataset": source_dataset,
         "schema": list(CANONICAL_COLUMNS),
     }
@@ -658,12 +822,19 @@ def harmonise_frame(
     pseudo: PseudoSequenceRegistry,
     source_dataset: str = SOURCE_IEDB_TCELL,
     input_files: Mapping[str, dict] | None = None,
+    label_rule: str = DEFAULT_LABEL_RULE,
 ) -> HarmonisedCorpus:
     """Build the canonical frame from one IEDB-shaped raw frame.
 
+    One output row is one (peptide, allele) pair, labelled by `label_rule`.
     Every count in the returned report is computed from the frame that was
-    just built or from the drop counters incremented while building it.
+    just built or from the counters incremented while building it.
     """
+    if label_rule not in LABEL_RULES:
+        raise UnknownLabelRuleError(
+            f"unknown label rule {label_rule!r}; the pre-registered rules are "
+            f"{list(LABEL_RULES)}"
+        )
     missing = [c for c in RAW_COLUMNS if c not in raw.columns]
     if missing:
         raise HarmonisationError(f"raw frame is missing column(s): {missing}")
@@ -676,6 +847,7 @@ def harmonise_frame(
     missing_provenance_fields: Counter[str] = Counter()
     qualitative_seen: Counter[str] = Counter()
     unresolved_allele_strings: Counter[str] = Counter()
+    absent_from_pseudo_table: Counter[str] = Counter()
     two_digit_mappings = 0
     kept: list[dict] = []
 
@@ -726,6 +898,8 @@ def harmonise_frame(
         if sequence is None:
             dropped[str(pseudo_drop)] += 1
             unresolved_allele_strings[raw_allele] += 1
+            if pseudo_drop == "allele_not_in_pseudo_sequence_table":
+                absent_from_pseudo_table[str(resolution.canonical)] += 1
             continue
 
         # 6. Peptide alphabet and length. Checked after scope, so that these
@@ -790,25 +964,51 @@ def harmonise_frame(
             }
         )
 
-    # 8. Deduplicate on (peptide, allele), keeping the union of provenance.
+    # 8. Collapse to one row per (peptide, allele) pair, keeping the union of
+    #    provenance, then label the pair with the selected rule. Rows sharing a
+    #    pair are repeated measurements of one observation, so the pair - not
+    #    the assay row - is the unit of analysis from here on.
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for record in kept:
         groups[(record["peptide"], record["allele"])].append(record)
 
+    record_level_dropped = int(sum(dropped.values()))
+
     merged: list[dict] = []
-    conflict_pairs: list[tuple[str, str]] = []
-    conflict_records = 0
-    conflict_by_label: Counter[int] = Counter()
+    dropped_pairs: list[tuple[str, str]] = []
+    dropped_pair_records = 0
+    dropped_pairs_by_reason: Counter[str] = Counter()
+    dropped_pair_records_by_label: Counter[int] = Counter()
+    pattern: Counter[str] = Counter()
     pre_dedup_by_label: Counter[int] = Counter(record["label"] for record in kept)
     for pair in sorted(groups):
         members = groups[pair]
-        labels = {m["label"] for m in members}
-        if len(labels) > 1:
-            conflict_pairs.append(pair)
-            conflict_records += len(members)
-            conflict_by_label.update(m["label"] for m in members)
-            dropped["duplicate_label_conflict"] += len(members)
+        n_assay_records = len(members)
+        n_positive = int(sum(int(m["label"]) for m in members))
+        n_negative = n_assay_records - n_positive
+
+        # The disagreement pattern is a property of the data, counted over
+        # every pair that reached the rule - including the ones it drops.
+        if n_negative == 0:
+            pattern["unanimous_positive"] += 1
+        elif n_positive == 0:
+            pattern["unanimous_negative"] += 1
+        else:
+            pattern["mixed"] += 1
+        if n_positive == n_negative:
+            pattern["tied"] += 1
+
+        pair_label, pair_drop_reason = _pair_label(
+            label_rule, n_positive, n_assay_records
+        )
+        if pair_label is None:
+            dropped_pairs.append(pair)
+            dropped_pair_records += n_assay_records
+            dropped_pairs_by_reason[pair_drop_reason] += 1
+            dropped_pair_records_by_label.update(m["label"] for m in members)
+            dropped[pair_drop_reason] += n_assay_records
             continue
+
         first = members[0]
         sources = sorted({m["source_dataset"] for m in members})
         merged.append(
@@ -817,7 +1017,10 @@ def harmonise_frame(
                 "peptide_length": first["peptide_length"],
                 "allele": first["allele"],
                 "allele_pseudoseq": first["allele_pseudoseq"],
-                "label": first["label"],
+                "label": int(pair_label),
+                "n_assay_records": n_assay_records,
+                "n_positive_assay_records": n_positive,
+                "positive_fraction": n_positive / n_assay_records,
                 "source_dataset": ";".join(sources),
                 "assay_type": ";".join(sorted({m["assay_type"] for m in members})),
                 "negative_sample_origin": ";".join(
@@ -841,7 +1044,8 @@ def harmonise_frame(
             }
         )
 
-    duplicates_merged = len(kept) - conflict_records - len(merged)
+    records_in_labelled_pairs = len(kept) - dropped_pair_records
+    duplicates_merged = records_in_labelled_pairs - len(merged)
 
     if not merged:
         raise DegenerateCorpusError(
@@ -851,12 +1055,20 @@ def harmonise_frame(
 
     frame = pd.DataFrame(merged, columns=list(CANONICAL_COLUMNS))
     frame = frame.sort_values(["peptide", "allele"]).reset_index(drop=True)
-    frame["label"] = frame["label"].astype("int64")
-    frame["peptide_length"] = frame["peptide_length"].astype("int64")
-    frame["n_contributing_sources"] = frame["n_contributing_sources"].astype("int64")
-    frame["n_contributing_records"] = frame["n_contributing_records"].astype("int64")
+    for column in (
+        "label",
+        "peptide_length",
+        "n_assay_records",
+        "n_positive_assay_records",
+        "n_contributing_sources",
+        "n_contributing_records",
+    ):
+        frame[column] = frame[column].astype("int64")
+    frame["positive_fraction"] = frame["positive_fraction"].astype("float64")
 
-    criterion = harmonisation_criterion(source_dataset, pseudo.source_names)
+    criterion = harmonisation_criterion(
+        source_dataset, pseudo.source_names, label_rule=label_rule
+    )
     digest = content_hash(frame, criterion)
 
     # --- every number below is read back off the frame just built ----------
@@ -882,6 +1094,37 @@ def harmonise_frame(
         "n_negative": float((frame["label"] == 0).sum()),
     }
 
+    absent_ranked = sorted(
+        absent_from_pseudo_table.items(), key=lambda kv: (-kv[1], kv[0])
+    )
+    pairs_total = int(len(merged) + len(dropped_pairs))
+    reconciliation = {
+        "note": (
+            "one canonical row is one (peptide, allele) pair. Record-level "
+            "drops, pair-level drops, records collapsed into a surviving pair "
+            "and the surviving pairs themselves account for every raw row."
+        ),
+        "raw_row_count": int(len(raw)),
+        "records_dropped_record_level": int(record_level_dropped),
+        "records_dropped_pair_level": int(dropped_pair_records),
+        "records_in_labelled_pairs": int(records_in_labelled_pairs),
+        "records_collapsed_into_pairs": int(duplicates_merged),
+        "pairs_labelled": int(len(merged)),
+        "pairs_dropped": int(len(dropped_pairs)),
+        "pairs_total": pairs_total,
+        "record_level_balances": bool(
+            record_level_dropped
+            + dropped_pair_records
+            + duplicates_merged
+            + len(merged)
+            == len(raw)
+        ),
+        "pair_level_balances": bool(
+            len(merged) + len(dropped_pairs) == pairs_total
+            and records_in_labelled_pairs == int(frame["n_assay_records"].sum())
+        ),
+    }
+
     report = {
         "module": "M1 nbx.data.harmonise",
         "source_dataset": source_dataset,
@@ -891,8 +1134,15 @@ def harmonise_frame(
         "criterion": criterion,
         "content_hash": digest,
         "schema": list(frame.columns),
+        "unit_of_analysis": "peptide_allele_pair",
+        "label_rule": label_rule,
+        "label_rule_description": LABEL_RULE_DESCRIPTIONS[label_rule],
+        "label_rules_available": list(LABEL_RULES),
+        "primary_label_rule": DEFAULT_LABEL_RULE,
         "record_count": int(len(frame)),
+        "pair_count": int(len(frame)),
         "allele_count": int(frame["allele"].nunique()),
+        "peptide_count": int(frame["peptide"].nunique()),
         "label_counts": label_counts,
         "length_distribution": length_distribution,
         "per_source_breakdown": per_source,
@@ -900,21 +1150,61 @@ def harmonise_frame(
         "raw_row_count": int(len(raw)),
         "records_before_deduplication": int(len(kept)),
         "duplicate_records_merged": int(duplicates_merged),
-        "label_conflict_pairs_dropped": int(len(conflict_pairs)),
-        # The conflict policy is not label-neutral: dropping a contradictory
-        # (peptide, allele) pair removes positives and negatives in whatever
-        # ratio the pair happened to have. That shifts the corpus-level
-        # positive-to-negative ratio, which is itself a design artefact, so
-        # the shift is reported rather than left for someone to discover.
+        "reconciliation": reconciliation,
+        "pair_pattern_summary": {
+            "note": (
+                "counted over every (peptide, allele) pair that reached the "
+                "label rule, including the pairs the rule then dropped. Tied "
+                "pairs are a SUBSET of mixed pairs; unanimous_positive + "
+                "unanimous_negative + mixed equals pairs_total."
+            ),
+            "pairs_total": pairs_total,
+            "unanimous_positive": int(pattern["unanimous_positive"]),
+            "unanimous_negative": int(pattern["unanimous_negative"]),
+            "mixed": int(pattern["mixed"]),
+            "tied": int(pattern["tied"]),
+        },
+        "pairs_dropped_by_label_rule": int(len(dropped_pairs)),
+        "pairs_dropped_by_reason": {
+            str(k): int(v) for k, v in sorted(dropped_pairs_by_reason.items())
+        },
+        # The label rule is not label-neutral: dropping a pair removes
+        # positives and negatives in whatever ratio the pair happened to have,
+        # and labelling a mixed pair reassigns the minority's records. Either
+        # way the corpus-level positive-to-negative ratio moves, and that ratio
+        # is itself a design artefact, so the shift is reported rather than
+        # left for someone to discover.
         "label_counts_before_deduplication": {
             str(k): int(v) for k, v in sorted(pre_dedup_by_label.items())
         },
-        "label_conflict_records_by_label": {
-            str(k): int(v) for k, v in sorted(conflict_by_label.items())
+        "records_in_dropped_pairs_by_label": {
+            str(k): int(v) for k, v in sorted(dropped_pair_records_by_label.items())
         },
-        "label_conflict_examples": [
-            list(pair) for pair in conflict_pairs[:_LABEL_CONFLICT_EXAMPLE_LIMIT]
+        "dropped_pair_examples": [
+            list(pair) for pair in dropped_pairs[:_DROPPED_PAIR_EXAMPLE_LIMIT]
         ],
+        "labelled_pairs_with_mixed_negative_sample_origin": int(
+            frame["negative_sample_origin"].str.contains(";", regex=False).sum()
+        ),
+        "alleles_absent_from_pseudo_sequence_table": {
+            "drop_reason": "allele_not_in_pseudo_sequence_table",
+            "note": (
+                "alleles that WERE resolved to a two-field name but that no "
+                "pseudo-sequence table carries, and whose two-digit group does "
+                "not admit an unambiguous representative. Their records are "
+                "dropped, never approximated. This is a coverage gap in the "
+                "table, not an ambiguity in the input."
+            ),
+            "pseudo_sequence_sources": pseudo.source_names,
+            "n_alleles": int(len(absent_from_pseudo_table)),
+            "n_records": int(sum(absent_from_pseudo_table.values())),
+            "listed_limit": _ABSENT_ALLELE_LIST_LIMIT,
+            "n_listed": int(min(len(absent_ranked), _ABSENT_ALLELE_LIST_LIMIT)),
+            "alleles": [
+                {"allele": str(allele), "records": int(count)}
+                for allele, count in absent_ranked[:_ABSENT_ALLELE_LIST_LIMIT]
+            ],
+        },
         "dropped_by_reason": {str(k): int(v) for k, v in sorted(dropped.items())},
         "dropped_total": int(sum(dropped.values())),
         "dropped_for_missing_provenance": int(dropped["missing_provenance"]),
@@ -960,6 +1250,28 @@ def harmonise_frame(
         raise HarmonisationError("a retained record has a wrong-length pseudo-sequence")
     if frame.duplicated(["peptide", "allele"]).any():
         raise HarmonisationError("deduplication left a duplicate (peptide, allele) pair")
+    if not reconciliation["record_level_balances"]:
+        raise HarmonisationError(
+            "record reconciliation does not balance: kept pairs, dropped "
+            "records and collapsed records do not account for every raw row. "
+            f"{reconciliation}"
+        )
+    if not reconciliation["pair_level_balances"]:
+        raise HarmonisationError(
+            f"pair reconciliation does not balance: {reconciliation}"
+        )
+    patterns: dict = report["pair_pattern_summary"]  # type: ignore[assignment]
+    if (
+        patterns["unanimous_positive"]
+        + patterns["unanimous_negative"]
+        + patterns["mixed"]
+        != patterns["pairs_total"]
+    ):
+        raise HarmonisationError(
+            f"pair disagreement patterns do not partition the pairs: {patterns}"
+        )
+    if (frame["n_positive_assay_records"] > frame["n_assay_records"]).any():
+        raise HarmonisationError("a pair reports more positive assays than assays")
 
     return HarmonisedCorpus(frame=frame, report=report, content_hash=digest)
 
@@ -1003,6 +1315,28 @@ def write_corpus(
         # refusal above - which is how the stale-report failure that motivated
         # putting the criterion in the hash is now caught.
         if dataset_path.exists():
+            # Before describing the parquet again, check that it is still the
+            # parquet the report describes. A report is only as trustworthy as
+            # the file it points at.
+            recorded_criterion = existing.get("criterion")
+            if not isinstance(recorded_criterion, dict):
+                raise ArtefactIntegrityError(
+                    f"{report_path.name} records no criterion, so "
+                    f"{dataset_path.name} cannot be re-hashed against it. "
+                    "Refusing to refresh a report over an unverifiable artefact."
+                )
+            on_disk = content_hash(
+                pd.read_parquet(dataset_path), recorded_criterion
+            )
+            if on_disk != existing.get("content_hash"):
+                raise ArtefactIntegrityError(
+                    f"{dataset_path.name} hashes to {on_disk} but "
+                    f"{report_path.name} records "
+                    f"{existing.get('content_hash')}. The parquet has changed "
+                    "since its report was written, so the report may not be "
+                    "refreshed over it. Investigate the file; do not re-run "
+                    "over it."
+                )
             report_path.write_text(
                 json.dumps(
                     corpus.report, indent=2, sort_keys=True, ensure_ascii=False
@@ -1037,8 +1371,21 @@ def _file_digest(path: Path) -> dict:
     return {"path": str(path), "sha256": digest.hexdigest(), "bytes": size}
 
 
+def default_artefact_name(label_rule: str = DEFAULT_LABEL_RULE) -> str:
+    """The artefact base name for a rule: one artefact per rule, by name."""
+    if label_rule not in LABEL_RULES:
+        raise UnknownLabelRuleError(
+            f"unknown label rule {label_rule!r}; the pre-registered rules are "
+            f"{list(LABEL_RULES)}"
+        )
+    return f"iedb_tcell_{label_rule}"
+
+
 def harmonise(
-    sources: dict[str, Path], out_dir: Path, name: str = "iedb_tcell"
+    sources: dict[str, Path],
+    out_dir: Path,
+    name: str | None = None,
+    label_rule: str = DEFAULT_LABEL_RULE,
 ) -> tuple[HarmonisedCorpus, dict[str, Path]]:
     """Build and write the canonical dataset. See FR-01 to FR-06.
 
@@ -1046,6 +1393,10 @@ def harmonise(
     and `mhc_pseudo` (an allele -> pseudo-sequence table, required). Any other
     key is refused: this pass ingests the IEDB T cell export only, and
     half-ingesting a corpus is worse than not ingesting it.
+
+    `label_rule` selects one of the pre-registered pair-label rules and is
+    part of the artefact's hashed criterion. When `name` is not given, the
+    artefact is named after the rule, so one rule can never overwrite another.
     """
     unknown = sorted(set(sources) - set(SUPPORTED_SOURCE_KEYS))
     if unknown:
@@ -1078,6 +1429,9 @@ def harmonise(
             SOURCE_KEY_IEDB_TCELL: _file_digest(tcell_path),
             SOURCE_KEY_PSEUDO: _file_digest(pseudo_path),
         },
+        label_rule=label_rule,
     )
-    paths = write_corpus(corpus, out_dir=out_dir, name=name)
+    paths = write_corpus(
+        corpus, out_dir=out_dir, name=name or default_artefact_name(label_rule)
+    )
     return corpus, paths

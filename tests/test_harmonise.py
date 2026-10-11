@@ -20,16 +20,20 @@ import pandas as pd
 import pytest
 
 from nbx.data.harmonise import (
+    DEFAULT_LABEL_RULE,
+    LABEL_RULES,
     PEPTIDE_MAX_LENGTH,
     PEPTIDE_MIN_LENGTH,
     PSEUDO_SEQUENCE_LENGTH,
     QUALITATIVE_LABEL_MAP,
     RAW_COLUMNS,
     ArtefactHashConflictError,
+    ArtefactIntegrityError,
     DegenerateCorpusError,
     PseudoSequenceRegistry,
     PseudoSequenceTable,
     ReferenceStatistic,
+    UnknownLabelRuleError,
     UnsupportedSourceError,
     compare_to_references,
     harmonise,
@@ -95,8 +99,18 @@ def raw_frame(rows: list[dict[str, str]]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=list(RAW_COLUMNS)).astype("string").fillna("")
 
 
-def harmonise_rows(rows: list[dict[str, str]]):
-    return harmonise_frame(raw_frame(rows), pseudo=pseudo_registry())
+def harmonise_rows(rows: list[dict[str, str]], label_rule: str = DEFAULT_LABEL_RULE):
+    return harmonise_frame(
+        raw_frame(rows), pseudo=pseudo_registry(), label_rule=label_rule
+    )
+
+
+def pair_labels(corpus) -> set[tuple[str, str, int]]:
+    """The (peptide, allele, label) set a corpus asserts. The unit of analysis."""
+    return {
+        (str(r.peptide), str(r.allele), int(r.label))
+        for r in corpus.frame.itertuples(index=False)
+    }
 
 
 # --------------------------------------------------------------------------
@@ -260,7 +274,9 @@ def test_fr02_unresolvable_and_out_of_scope_alleles_are_removed_with_counted_rea
     assert drops["allele_engineered_variant"] == 1
     assert drops["allele_expression_suffix"] == 1
     assert drops["allele_non_classical_class_i"] == 1
-    assert drops["allele_pseudo_sequence_unavailable"] == 1
+    # 'HLA-C*18:01' resolves to a two-field name; the table simply does not
+    # carry it. That is a coverage gap in the table, not an ambiguity.
+    assert drops["allele_not_in_pseudo_sequence_table"] == 1
     assert sum(drops.values()) == len(rows) - len(corpus.frame)
 
 
@@ -284,8 +300,54 @@ def test_fr02_two_digit_representative_is_used_only_when_unambiguous():
     assert "illustrative_table" in note
 
     drops = corpus.report["dropped_by_reason"]
-    assert drops["allele_two_digit_mapping_ambiguous"] == 1
+    # 'HLA-B*44:99' is fully resolved and absent from the table. Its group
+    # carries two distinct contact sets, so no representative may be chosen -
+    # but the record's problem is the table's coverage, not an ambiguous input.
+    assert drops["allele_not_in_pseudo_sequence_table"] == 1
+    assert "allele_two_digit_mapping_ambiguous" not in drops
     assert corpus.report["two_digit_representative_mappings"] == 1
+
+
+def test_fr02_two_digit_input_in_an_ambiguous_group_is_its_own_drop_reason():
+    # FR-02: the two reasons are distinguished. An input that carries only
+    # two-digit resolution and whose group has several distinct contact sets is
+    # genuinely ambiguous; an absent two-field allele is a table coverage gap.
+    rows = [
+        raw_row(**{"Epitope|Name": "SIINFEKLA", "MHC Restriction|Name": "HLA-B*44"}),
+        raw_row(**{"Epitope|Name": "SIINFEKLC", "MHC Restriction|Name": "HLA-A*11"}),
+        raw_row(**{"Epitope|Name": "SIINFEKLD", "MHC Restriction|Name": "HLA-B*35"}),
+    ]
+    corpus = harmonise_rows(rows)
+    drops = corpus.report["dropped_by_reason"]
+
+    assert drops["allele_two_digit_mapping_ambiguous"] == 1  # HLA-B*44
+    assert drops["allele_pseudo_sequence_unavailable"] == 1  # HLA-A*11, no group
+    assert "allele_not_in_pseudo_sequence_table" not in drops
+    # HLA-B*35: two-digit input, group unanimous -> representative, retained.
+    assert set(corpus.frame["allele"]) == {"HLA-B*35"}
+    assert corpus.frame.iloc[0]["allele_pseudoseq"] == _SEQ_B35_SHARED
+
+
+def test_fr02_report_lists_the_alleles_absent_from_the_pseudo_sequence_table():
+    # FR-02: the table's coverage gap is visible, per allele, with counts.
+    rows = [
+        raw_row(),
+        raw_row(**{"Epitope|Name": "SIINFEKLC", "MHC Restriction|Name": "HLA-C*18:01"}),
+        raw_row(**{"Epitope|Name": "SIINFEKLD", "MHC Restriction|Name": "HLA-C*18:01"}),
+        raw_row(**{"Epitope|Name": "SIINFEKLE", "MHC Restriction|Name": "HLA-B*44:99"}),
+    ]
+    corpus = harmonise_rows(rows)
+    section = corpus.report["alleles_absent_from_pseudo_sequence_table"]
+
+    assert section["n_alleles"] == 2
+    assert section["n_records"] == 3
+    by_allele = {entry["allele"]: entry["records"] for entry in section["alleles"]}
+    assert by_allele == {"HLA-C*18:01": 2, "HLA-B*44:99": 1}
+    # Listed most-affected first, so a coverage gap cannot hide in the tail.
+    assert [entry["records"] for entry in section["alleles"]] == sorted(
+        by_allele.values(), reverse=True
+    )
+    assert section["pseudo_sequence_sources"] == ["illustrative_table"]
 
 
 # --------------------------------------------------------------------------
@@ -330,9 +392,9 @@ def test_fr03_duplicate_peptide_allele_pairs_merge_keeping_the_union_of_provenan
     assert corpus.report["duplicate_records_merged"] == len(rows) - len(corpus.frame)
 
 
-def test_fr03_duplicates_that_disagree_on_label_are_dropped_and_counted():
-    # FR-03: a (peptide, allele) pair with conflicting labels is NOT silently
-    # resolved. The decision taken here is to drop the pair and count it.
+def test_fr03_strict_rule_drops_duplicates_that_disagree_on_label_and_counts_them():
+    # FR-03: under the `strict` rule a (peptide, allele) pair with conflicting
+    # labels is NOT silently resolved: the pair is dropped and counted.
     rows = [
         raw_row(**{"Epitope|Name": "SIINFEKLA"}),
         raw_row(
@@ -340,18 +402,240 @@ def test_fr03_duplicates_that_disagree_on_label_are_dropped_and_counted():
         ),
         raw_row(**{"Epitope|Name": "SIINFEKLC"}),
     ]
-    corpus = harmonise_rows(rows)
+    corpus = harmonise_rows(rows, label_rule="strict")
 
     assert set(corpus.frame["peptide"]) == {"SIINFEKLC"}
-    assert corpus.report["label_conflict_pairs_dropped"] == 1
+    assert corpus.report["pairs_dropped_by_label_rule"] == 1
     assert corpus.report["dropped_by_reason"]["duplicate_label_conflict"] == 2
-    conflicts = corpus.report["label_conflict_examples"]
-    assert ["SIINFEKLA", "HLA-A*02:01"] in [list(c) for c in conflicts]
+    dropped_pairs = corpus.report["dropped_pair_examples"]
+    assert ["SIINFEKLA", "HLA-A*02:01"] in [list(c) for c in dropped_pairs]
 
     # The policy is not label-neutral, so its effect on the positive-to-negative
     # ratio is reported rather than left implicit.
-    assert corpus.report["label_conflict_records_by_label"] == {"0": 1, "1": 1}
+    assert corpus.report["records_in_dropped_pairs_by_label"] == {"0": 1, "1": 1}
     assert corpus.report["label_counts_before_deduplication"] == {"0": 1, "1": 2}
+
+
+# --------------------------------------------------------------------------
+# FR-03 / analysis plan section 2: the (peptide, allele) PAIR is the unit of
+# analysis, and the pre-registered label rules decide what a pair's label is.
+# Every fixture below is synthetic and illustrative.
+# --------------------------------------------------------------------------
+_PEP_MAJORITY_POS = "MAYPASSPV"   # 2 positive, 1 negative
+_PEP_MAJORITY_NEG = "MAYFAILVK"   # 1 positive, 2 negative
+_PEP_TIED = "TIEDPAIRK"           # 1 positive, 1 negative
+_PEP_UNANIMOUS_POS = "AGREEPSVK"  # 2 positive
+_PEP_UNANIMOUS_NEG = "AGREENEGK"  # 1 negative
+_ALLELE = "HLA-A*02:01"
+
+
+def disagreeing_rows() -> list[dict[str, str]]:
+    """Pairs with a deliberate assay pattern each. Synthetic, illustrative."""
+    pos = "Positive"
+    neg = "Negative"
+
+    def row(peptide: str, level: str, assay: str) -> dict[str, str]:
+        return raw_row(
+            **{
+                "Epitope|Name": peptide,
+                "Assay|Qualitative Measurement": level,
+                "Assay|Method": assay,
+            }
+        )
+
+    return [
+        row(_PEP_MAJORITY_POS, pos, "assay alpha"),
+        row(_PEP_MAJORITY_POS, "Positive-Low", "assay beta"),
+        row(_PEP_MAJORITY_POS, neg, "assay gamma"),
+        row(_PEP_MAJORITY_NEG, pos, "assay alpha"),
+        row(_PEP_MAJORITY_NEG, neg, "assay beta"),
+        row(_PEP_MAJORITY_NEG, neg, "assay gamma"),
+        row(_PEP_TIED, pos, "assay alpha"),
+        row(_PEP_TIED, neg, "assay beta"),
+        row(_PEP_UNANIMOUS_POS, pos, "assay alpha"),
+        row(_PEP_UNANIMOUS_POS, "Positive-High", "assay beta"),
+        row(_PEP_UNANIMOUS_NEG, neg, "assay alpha"),
+    ]
+
+
+def test_pair_is_the_unit_and_assay_counts_are_retained_per_pair():
+    # Analysis plan section 2: rows sharing a pair are repeated measurements of
+    # one observation, and the pair keeps its assay count and positive fraction.
+    corpus = harmonise_rows(disagreeing_rows(), label_rule="any_positive")
+    by_peptide = corpus.frame.set_index("peptide")
+
+    assert len(corpus.frame) == 5  # five distinct pairs in the fixture
+    assert not corpus.frame.duplicated(["peptide", "allele"]).any()
+    assert by_peptide.loc[_PEP_MAJORITY_POS, "n_assay_records"] == 3
+    assert by_peptide.loc[_PEP_MAJORITY_POS, "n_positive_assay_records"] == 2
+    assert by_peptide.loc[_PEP_MAJORITY_POS, "positive_fraction"] == pytest.approx(
+        2 / 3
+    )
+    assert by_peptide.loc[_PEP_UNANIMOUS_NEG, "n_assay_records"] == 1
+    assert by_peptide.loc[_PEP_UNANIMOUS_NEG, "n_positive_assay_records"] == 0
+    assert by_peptide.loc[_PEP_UNANIMOUS_NEG, "positive_fraction"] == pytest.approx(
+        0.0
+    )
+    # The existing contributing-record count and the new assay count are the
+    # same quantity seen from two sides; they may never disagree.
+    assert (
+        corpus.frame["n_assay_records"] == corpus.frame["n_contributing_records"]
+    ).all()
+    assert (
+        corpus.frame["positive_fraction"]
+        == corpus.frame["n_positive_assay_records"] / corpus.frame["n_assay_records"]
+    ).all()
+
+
+def test_majority_rule_labels_by_majority_and_drops_ties():
+    # Analysis plan section 2: majority vote over the pair's assays, ties
+    # dropped under a named reason. All Positive* levels count as positive.
+    corpus = harmonise_rows(disagreeing_rows(), label_rule="majority")
+
+    assert pair_labels(corpus) == {
+        (_PEP_MAJORITY_POS, _ALLELE, 1),
+        (_PEP_MAJORITY_NEG, _ALLELE, 0),
+        (_PEP_UNANIMOUS_POS, _ALLELE, 1),
+        (_PEP_UNANIMOUS_NEG, _ALLELE, 0),
+    }
+    assert _PEP_TIED not in set(corpus.frame["peptide"])
+    assert corpus.report["dropped_by_reason"]["pair_label_tie"] == 2
+    assert corpus.report["pairs_dropped_by_reason"] == {"pair_label_tie": 1}
+    assert "duplicate_label_conflict" not in corpus.report["dropped_by_reason"]
+    assert corpus.report["label_rule"] == "majority"
+
+
+def test_strict_rule_drops_every_pair_whose_assay_records_disagree():
+    # Analysis plan section 2(a): the strict sensitivity analysis. Recomputed
+    # here independently of the module's own grouping.
+    rows = disagreeing_rows()
+    corpus = harmonise_rows(rows, label_rule="strict")
+
+    observed: dict[tuple[str, str], set[int]] = {}
+    for row in rows:
+        key = (row["Epitope|Name"], _ALLELE)
+        observed.setdefault(key, set()).add(
+            QUALITATIVE_LABEL_MAP[row["Assay|Qualitative Measurement"]]
+        )
+    expected = {
+        (peptide, allele, next(iter(labels)))
+        for (peptide, allele), labels in observed.items()
+        if len(labels) == 1
+    }
+    assert pair_labels(corpus) == expected
+    assert corpus.report["pairs_dropped_by_reason"] == {"duplicate_label_conflict": 3}
+    assert corpus.report["dropped_by_reason"]["duplicate_label_conflict"] == 8
+
+
+def test_any_positive_rule_labels_a_pair_positive_if_any_assay_is_positive():
+    # Analysis plan section 2(c): the permissive sensitivity analysis. No pair
+    # is dropped by this rule.
+    corpus = harmonise_rows(disagreeing_rows(), label_rule="any_positive")
+
+    assert pair_labels(corpus) == {
+        (_PEP_MAJORITY_POS, _ALLELE, 1),
+        (_PEP_MAJORITY_NEG, _ALLELE, 1),
+        (_PEP_TIED, _ALLELE, 1),
+        (_PEP_UNANIMOUS_POS, _ALLELE, 1),
+        (_PEP_UNANIMOUS_NEG, _ALLELE, 0),
+    }
+    assert corpus.report["pairs_dropped_by_label_rule"] == 0
+    assert corpus.report["pairs_dropped_by_reason"] == {}
+
+
+def test_strict_rule_reproduces_the_previous_conflict_dropping_behaviour():
+    # Regression guard, synthetic twin of the real-corpus comparison: `strict`
+    # keeps exactly the pairs whose assay records all agree, which is what the
+    # module did before the rules existed.
+    rows = disagreeing_rows()
+    strict = harmonise_rows(rows, label_rule="strict")
+    majority = harmonise_rows(rows, label_rule="majority")
+    permissive = harmonise_rows(rows, label_rule="any_positive")
+
+    assert pair_labels(strict) <= pair_labels(permissive)
+    assert pair_labels(strict) != pair_labels(majority)
+    # Unanimous pairs are labelled identically by all three rules.
+    unanimous = {
+        (_PEP_UNANIMOUS_POS, _ALLELE, 1),
+        (_PEP_UNANIMOUS_NEG, _ALLELE, 0),
+    }
+    for corpus in (strict, majority, permissive):
+        assert unanimous <= pair_labels(corpus)
+
+
+def test_label_rule_is_part_of_the_hashed_criterion():
+    # Each rule is a separate artefact with its own content hash (section 2).
+    rows = disagreeing_rows()
+    hashes = {}
+    for rule in LABEL_RULES:
+        corpus = harmonise_rows(rows, label_rule=rule)
+        assert corpus.report["criterion"]["label_rule"] == rule
+        hashes[rule] = corpus.content_hash
+    assert len(set(hashes.values())) == len(LABEL_RULES)
+    assert DEFAULT_LABEL_RULE == "majority"
+
+
+def test_unknown_label_rule_is_refused():
+    with pytest.raises(UnknownLabelRuleError):
+        harmonise_rows([raw_row()], label_rule="whichever_wins")
+
+
+def test_pair_pattern_summary_counts_come_from_the_pairs():
+    # The disagreement pattern is reported, per rule, from the pairs - never
+    # from a constant. Under `any_positive` no pair is dropped, so the summary
+    # must be reproducible from the frame alone.
+    corpus = harmonise_rows(disagreeing_rows(), label_rule="any_positive")
+    frame = corpus.frame
+    summary = corpus.report["pair_pattern_summary"]
+
+    n_pos = frame["n_positive_assay_records"]
+    n_neg = frame["n_assay_records"] - frame["n_positive_assay_records"]
+    assert summary["pairs_total"] == len(frame)
+    assert summary["unanimous_positive"] == int((n_neg == 0).sum())
+    assert summary["unanimous_negative"] == int((n_pos == 0).sum())
+    assert summary["mixed"] == int(((n_pos > 0) & (n_neg > 0)).sum())
+    assert summary["tied"] == int((n_pos == n_neg).sum())
+    assert (
+        summary["unanimous_positive"]
+        + summary["unanimous_negative"]
+        + summary["mixed"]
+        == summary["pairs_total"]
+    )
+    assert summary["tied"] <= summary["mixed"]
+    assert summary["note"]
+
+
+def test_reconciliation_balances_at_record_and_pair_level_for_every_rule():
+    # Kept + dropped (by reason) + collapsed-into-pair must equal the raw row
+    # count, and the pair counts must balance too.
+    rows = disagreeing_rows() + [
+        raw_row(**{"Epitope|Name": "SIINFEKLX"}),  # non-standard residue
+        raw_row(**{"Epitope|Name": "SIINFEKLA", "Assay|Method": ""}),  # no provenance
+        raw_row(**{"MHC Restriction|Class": "II"}),  # out of scope
+    ]
+    for rule in LABEL_RULES:
+        corpus = harmonise_rows(rows, label_rule=rule)
+        rec = corpus.report["reconciliation"]
+
+        assert rec["raw_row_count"] == len(rows)
+        assert (
+            rec["records_dropped_record_level"]
+            + rec["records_dropped_pair_level"]
+            + rec["records_collapsed_into_pairs"]
+            + rec["pairs_labelled"]
+            == rec["raw_row_count"]
+        ), rule
+        assert rec["pairs_labelled"] == len(corpus.frame)
+        assert rec["pairs_total"] == rec["pairs_labelled"] + rec["pairs_dropped"]
+        assert rec["record_level_balances"] is True
+        assert rec["pair_level_balances"] is True
+        assert rec["records_in_labelled_pairs"] == int(
+            corpus.frame["n_assay_records"].sum()
+        )
+        # The record-level drop total still accounts for every dropped row.
+        assert corpus.report["dropped_total"] == (
+            rec["records_dropped_record_level"] + rec["records_dropped_pair_level"]
+        )
 
 
 # --------------------------------------------------------------------------
@@ -472,6 +756,24 @@ def test_fr05_written_dataset_round_trips_with_the_same_content_hash(tmp_path):
     reloaded = pd.read_parquet(paths["dataset"])
     assert len(reloaded) == len(corpus.frame)
     assert list(reloaded.columns) == list(corpus.frame.columns)
+
+    # Re-writing the same corpus re-hashes the parquet on disk and agrees.
+    again = write_corpus(corpus, out_dir=tmp_path, name="illustrative")
+    assert again["dataset"] == paths["dataset"]
+
+
+def test_fr05_write_refuses_when_the_parquet_no_longer_matches_its_report(tmp_path):
+    # FR-05: refreshing a report is only legitimate if the parquet is still the
+    # corpus the report describes. An edited parquet is caught, not described.
+    corpus = harmonise_rows([raw_row(), raw_row(**{"Epitope|Name": "SIINFEKLC"})])
+    paths = write_corpus(corpus, out_dir=tmp_path, name="illustrative")
+
+    tampered = pd.read_parquet(paths["dataset"])
+    tampered.loc[0, "label"] = 1 - int(tampered.loc[0, "label"])
+    tampered.to_parquet(paths["dataset"], engine="pyarrow", index=False)
+
+    with pytest.raises(ArtefactIntegrityError):
+        write_corpus(corpus, out_dir=tmp_path, name="illustrative")
 
 
 # --------------------------------------------------------------------------
