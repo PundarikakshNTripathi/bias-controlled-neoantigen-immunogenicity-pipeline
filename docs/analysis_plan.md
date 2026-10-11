@@ -123,4 +123,56 @@ if so, that is reported as a finding about data availability.
 
 ## Deviation log
 
-(empty)
+### 2026-10-11: harness and gate amendments after the design audit
+
+No model had been trained or evaluated in this repository at the time; every check
+described here used synthetic data. An independent adversarial audit of the M6 harness
+found that it could rank a model that scores by the shortcut. The amendments below
+were approved by the researcher in the master plan of the same date.
+
+1. **Section 5, shortcut-dependence tolerance: withdrawn.** The clause "a rise in
+   |kappa| is declared only if the allele-clustered bootstrap interval for the change
+   excludes zero" is withdrawn. It was an error in the original drafting: it makes the
+   gate more permissive, because a model needs less evidence to avoid a failure. It is
+   replaced by a burden-of-proof rule. A variant is rankable only if (i) its margin over
+   the matched HLA-only control is significant, (ii) the upper 95% bound of the change
+   in |kappa| relative to the baseline, from the allele-clustered bootstrap, does not
+   exceed a non-inferiority margin of zero, and (iv) it is not significantly worse than
+   the matched peptide-only control. A failure of (ii) or (iv) is reported as
+   `FAILED_SHORTCUT` with the failed condition named; filing (iv) under that status is a
+   design choice recorded here for ratification.
+2. **Condition (iii), an absolute ceiling on |kappa|, is not adopted.** Its value is a
+   scientific judgement that has not been given. The report lists it as not done. Until
+   it is set, a model exactly as shortcut-dependent as its baseline, with a zero-width
+   interval, can satisfy (ii); the report states this limit.
+3. **Section 4, ties: exact expectation, seed-free.** Reported AUPRC and the other
+   ranking metrics use the exact expectation over uniformly random orderings within tied
+   scores, so the tie handling has no seed. The planning note of the same date that
+   called this "equivalent" to threshold-grouped average precision was wrong: they differ
+   on tied blocks, and the grouped form was measured to be biased against an
+   allele-constant control. `metrics.auprc` and its tests are unchanged.
+4. **Section 5, reporting pair.** The one-sided p-value (alpha 0.05) is reported with the
+   matching 90% two-sided percentile interval and the one-sided 95% lower bound. A 95%
+   two-sided interval is not reported beside a one-sided p-value.
+5. **Pinned settings.** Trained-model seeds are exactly 1, 2, 3, 4, 5. The production
+   command always uses 10,000 bootstrap resamples and a fixed bootstrap seed; the Python
+   API may lower the resample count for tests, and the report then records that the
+   pre-registered settings were not used.
+6. **Multiplicity.** The report states the number of model variants compared and a
+   Holm-adjusted p-value for each model's margin. The gate reads the unadjusted
+   one-sided p-value; using the adjusted one would be a rule change requiring approval.
+7. **Integrity checks added to the harness.** An HLA-only control must give identical
+   predictions within every allele, a peptide-only control must give identical scores to
+   records that share a peptide, `split.json` carries per-record peptide, allele and
+   label with a digest that the harness verifies, and a peptide may not occur in more
+   than one of train, validation and test. Matched epochs, parameters, early-stopping
+   metric and tuning trials remain declared metadata that the harness cannot verify.
+
+Not done at this date: calibration of the bootstrap at the real admitted-allele count
+and unequal allele sizes, and a mutation test of the suite. A first attempt at both,
+run by an audit agent, was terminated by a rate limit before it reported, and nothing
+from it is used. They remain to be run, and their results will be logged here. Until
+then the bootstrap is known to be calibrated only on small synthetic regimes, where an
+independent check measured it as mildly liberal, and no statement is made about its
+behaviour at the real admitted-allele count.
+

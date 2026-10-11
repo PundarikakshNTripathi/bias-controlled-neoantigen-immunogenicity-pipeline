@@ -278,3 +278,46 @@ assay types; (2) whether to enforce a minimum test-block size per admitted allel
 (this changes the split criterion and its hash); (3) approval to freeze a split;
 (4) approval of the shortcut-dependence tolerance (gate rule change); (5) approval
 to push.
+
+## 2026-10-11 (end of day) — M6 evaluation harness and gate redesign
+
+**Built.** `nbx.evaluate.protocol` (run directory contract, refusal conditions,
+content-hashed report), `nbx.evaluate.stats` (exact expectation of average precision
+over random orderings within ties; weighted form for the bootstrap), a redesigned
+`nbx.evaluate.gate.evaluate_gate`, and `nbx eval` (options `--run`, `--split`,
+`--protocol`, `--out`, `--records-digest`; the bootstrap size and seed are not
+options). Tests were written first for the gate truth table; `tests/test_protocol.py`
+covers the harness. `python scripts/verify.py` passes (251 tests).
+
+**Why the gate changed.** An independent adversarial audit of the first harness found
+that it could rank a model that scores alleles by their training label rate, because
+the kappa condition compared the model with the baseline's point estimate and the
+baseline was equally biased. The rule now requires a significant margin over the
+HLA-only control, an upper 95% bound on the change in |kappa| that does not exceed
+zero, and no significant deficit against the peptide-only control. Details and the
+withdrawn pre-registration clause are in the deviation log of `docs/analysis_plan.md`.
+A first draft of the plan called the tie handling "equivalent" to threshold-grouped
+average precision; that was wrong (they differ on tied blocks) and is corrected there.
+
+**Verified** by `repro-verifier` on a fresh copy: an exhaustive grid of gate inputs
+with no violation of the stated rule; the exact tie expectation against brute-force
+enumeration of orderings; the bootstrap against an independent implementation; every
+refusal case refuses; the three synthetic scenarios (allele-only model not
+significant, allele shortcut plus peptide signal failed, peptide-driven low-kappa
+model passed).
+
+**Not done.**
+- Bootstrap calibration at the real admitted-allele count with unequal allele sizes,
+  and a mutation test of the suite. The audit agent that was running them was
+  terminated by a rate limit; no result from it is used.
+- An absolute ceiling on |kappa| (the value is a scientific decision).
+- FR-65 and the published-model acceptance reproduction.
+- Matched-configuration fields remain declared metadata. A coordinated forgery of
+  `split.json` is refused only when the digest is pinned with `--records-digest`.
+- No split has been frozen; no model has been trained.
+
+**Decisions still needed from you.** The |kappa| ceiling; ratification of filing the
+peptide-only condition under `FAILED_SHORTCUT`, of the neutral tie definition, of
+`ranking_k` = 20 and 100, and of the MCC rule; the assay-scope list; the minimum test
+records per admitted allele; which corpus is primary; the H2 operationalisation; and
+approval to freeze splits and to install `torch`.

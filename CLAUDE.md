@@ -86,7 +86,7 @@ measurement conditions training rather than annotating results afterwards.
 | L3 representation | M3 Representation service | `nbx.represent.cache` | contract only |
 | L4 modelling | M4 Model core | `nbx.model.backbone` | contract only |
 | L4 debiasing | M5 Masking policy | `nbx.bias.policy` | **built, tested** |
-| L5 evaluation | M6 Evaluation harness | `nbx.evaluate` | gate + metrics built; orchestration pending |
+| L5 evaluation | M6 Evaluation harness | `nbx.evaluate` | gate, metrics, protocol and `nbx eval` built; tested on synthetic predictions only |
 | L6 release | M7 Packaging | `nbx.release` | contract only |
 
 Run `nbx status` to see current state. Do not trust this table over the command.
