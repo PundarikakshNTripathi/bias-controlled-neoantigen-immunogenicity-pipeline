@@ -99,7 +99,7 @@ measured render as an em dash and never as zero.
 | Module | Package | State |
 |---|---|---|
 | M1 Data harmonisation | `nbx.data.harmonise` | IEDB T cell export only; MHC ligand, TESLA and HiTIDE not ingested |
-| M2 Bias diagnostics | `nbx.bias.diagnostics` | built, tested; not yet run on the harmonised corpus |
+| M2 Bias diagnostics | `nbx.bias.diagnostics`, `nbx.bias.profile` | built, tested; run once on the IEDB T cell corpus (see below) |
 | M3 Representation service | `nbx.represent.cache` | contract only |
 | M4 Model core | `nbx.model.backbone` | contract only |
 | M5 Masking policy | `nbx.bias.policy` | built, tested |
@@ -149,6 +149,33 @@ therefore excluded. No published reference statistic for this subset has been
 located, so the reproduction check (FR-06) reports no reference rather than a
 match.
 
+### M2: bias profile of the IEDB T cell corpus
+
+```bash
+nbx bias profile artefacts/datasets/iedb_tcell.parquet --report artefacts/bias/iedb_tcell.bias.json
+```
+
+The report records the input file's sha256 and is byte-for-byte reproducible. Read
+from the run of 2026-10-11 on the corpus above:
+
+- Of 146 alleles, 124 have a defined imbalance ratio (22 single-sample alleles are
+  excluded), and 48 of those 124 lie beyond 10:1 in either direction. The published
+  claim is that more than half of alleles do (Zhang et al. 2026, as summarised in the
+  project synopsis); on this filtered, single-source corpus the fraction is lower, so
+  that figure is not reproduced here. Contrasting ratios across datasets cannot be
+  tested with one source.
+- Mutual information with the label is reported as a bias candidate signal, not a
+  verdict. No variable exceeds a quarter of the label entropy. `source_dataset` is
+  zero by construction because the corpus has one source, and the `assay_type`
+  figure is inflated by many rare values.
+- The adaptive masking policy was computed for 9-mers over 61 of the 146 alleles.
+  Its threshold is chosen on the same corpus (no frozen validation split exists) and
+  plug-in mutual information is inflated for small allele subsets, so the policy
+  block is exploratory. No hypothesis (H1 to H4) has been evaluated.
+
+Split admissibility is reported in memory at the default criterion; no split has been
+frozen.
+
 ---
 
 ## Installation and verification
@@ -196,7 +223,7 @@ IEDB data are released under CC BY 4.0; cite IEDB when using derived data
 | Command | Function | State |
 |---|---|---|
 | `nbx data harmonise` | Ingest a public corpus into one canonical dataset | built (IEDB T cell) |
-| `nbx bias profile` | Compute I(b;y), rho(a), per-position MI and the masking policy | CLI not wired |
+| `nbx bias profile` | Compute I(b;y), rho(a), per-position MI and the masking policy | built |
 | `nbx split freeze` | Build and freeze an allele-balanced split | CLI not wired |
 | `nbx repr cache` | Compute and cache representations | not built |
 | `nbx train --matrix` | Run the ablation matrix with mandatory null controls | not built |
