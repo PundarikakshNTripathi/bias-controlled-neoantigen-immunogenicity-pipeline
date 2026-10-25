@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python",
+            "command": "${CLAUDE_PROJECT_DIR}/.venv/Scripts/python.exe",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/session_context.py"],
             "timeout": 150,
             "statusMessage": "Reading project state"
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python",
+            "command": "${CLAUDE_PROJECT_DIR}/.venv/Scripts/python.exe",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard_integrity.py"],
             "timeout": 20,
             "statusMessage": "Checking research-integrity rules"
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python",
+            "command": "${CLAUDE_PROJECT_DIR}/.venv/Scripts/python.exe",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/post_edit_check.py"],
             "timeout": 150,
             "statusMessage": "Running fast checks"

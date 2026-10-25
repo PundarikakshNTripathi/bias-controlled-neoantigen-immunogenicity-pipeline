@@ -28,8 +28,8 @@ analyses, Stage 7. Never cut the null controls or the honesty rules.
 
 Stage 1: Harden the evaluation. Plan approved 2026-10-26. Tick each step in the commit that finishes it.
 
-- [ ] 1. Commit the setup files; this checklist in place, State IN PROGRESS.
-- [ ] 2. R10: hooks use `.venv\Scripts\python.exe`; run each hook by hand; `verify.py --fast`.
+- [x] 1. Commit the setup files; this checklist in place, State IN PROGRESS.
+- [x] 2. R10: hooks use `.venv\Scripts\python.exe`; run each hook by hand; `verify.py --fast`.
 - [ ] 3. R1 as an added condition (iii): truth table first, then `gate.py` (upper 95% bound of
   |kappa_model| - |kappa_HLA-only| strictly below zero; missing gives PENDING; no override).
 - [ ] 4. Wire (iii) into `protocol.py` (report block, `kappa_gate_rule` text) with protocol tests.
