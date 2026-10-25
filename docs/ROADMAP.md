@@ -30,9 +30,9 @@ Stage 1: Harden the evaluation. Plan approved 2026-10-26. Tick each step in the 
 
 - [x] 1. Commit the setup files; this checklist in place, State IN PROGRESS.
 - [x] 2. R10: hooks use `.venv\Scripts\python.exe`; run each hook by hand; `verify.py --fast`.
-- [ ] 3. R1 as an added condition (iii): truth table first, then `gate.py` (upper 95% bound of
+- [x] 3. R1 as an added condition (iii): truth table first, then `gate.py` (upper 95% bound of
   |kappa_model| - |kappa_HLA-only| strictly below zero; missing gives PENDING; no override).
-- [ ] 4. Wire (iii) into `protocol.py` (report block, `kappa_gate_rule` text) with protocol tests.
+- [x] 4. Wire (iii) into `protocol.py` (report block, `kappa_gate_rule` text) with protocol tests.
 - [ ] 5. `scripts/calibrate_margin_test.py` (resumable, deterministic) and a 20-replicate pilot at
   B = 10,000; timing recorded; B and replicate count decided from it.
 - [ ] 6. Run the calibration (S1 noise-vs-noise, S2 lookup control vs zero-skill model, empirical allele

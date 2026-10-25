@@ -68,6 +68,11 @@ Decisions this module makes that the analysis plan does not specify
 * A model with no baseline run cannot be shown not to have raised shortcut
   dependence, so the kappa interval is withheld from the gate and the variant is
   PENDING. Every model also needs its own matched controls; so does the baseline.
+* Condition (iii) (decision R1) compares |kappa| with that of the model's own matched
+  HLA-only control, resampled on the same alleles; the upper 95% bound of the change
+  must be strictly below zero. An HLA-only control whose kappa is undefined (for
+  example one that scores every record alike) leaves the interval unmeasured and the
+  variant PENDING.
 * The baseline row is evaluated like a model (it needs controls, it gets a margin)
   but its kappa is compared with itself, so the shortcut condition is vacuous for
   it; it is flagged `reference_only` and never ranked.
@@ -983,6 +988,13 @@ def evaluate_runs(
         )
 
     baseline_boot = kappa_boot(plan.baseline) if plan.baseline is not None else None
+    hla_boot_cache: dict[str, np.ndarray | None] = {}
+
+    def hla_boot_of(name: str) -> np.ndarray | None:
+        ctl = plan.control_of[(name, "hla_only")]
+        if ctl not in hla_boot_cache:
+            hla_boot_cache[ctl] = kappa_boot(ctl)
+        return hla_boot_cache[ctl]
 
     # ---- margins -------------------------------------------------------
     margins: dict[tuple[str, str], stats.MarginEstimate] = {}
@@ -1056,11 +1068,24 @@ def evaluate_runs(
         elif boot is not None:
             change = np.abs(boot) - np.abs(baseline_boot)
             upper = stats.one_sided_bound(change, "upper")
+        hla_boot = hla_boot_of(name)
+        change_hla: np.ndarray | None = None
+        upper_hla: float | None = None
+        if boot is not None and hla_boot is not None:
+            change_hla = np.abs(boot) - np.abs(hla_boot)
+            upper_hla = stats.one_sided_bound(change_hla, "upper")
+        if upper_hla is None:
+            harness_note = (harness_note + " " if harness_note else "") + (
+                "The change in shortcut dependence relative to the matched HLA-only "
+                "control is undefined (its kappa or the model's cannot be computed), "
+                "so condition (iii) is unmeasured and no rank can be assigned."
+            )
         gate = evaluate_gate(
             headline_metric=mean_auprc[name],
             hla_only_margin=cm_h,
             peptide_only_margin=cm_p,
             kappa_change_upper_bound=upper,
+            hla_kappa_change_upper_bound=upper_hla,
             peptide_only_significantly_worse=est_p.significantly_worse,
         )
         gate_results[name] = gate
@@ -1128,6 +1153,26 @@ def evaluate_runs(
                 "ci90_high": UNMEASURED,
                 "noninferiority_margin": _r(NONINFERIORITY_MARGIN_KAPPA),
                 "n_valid_resamples": 0,
+            }
+        if change_hla is not None and upper_hla is not None:
+            lo_h, hi_h, n_valid_h = stats.percentile_interval(change_hla, 0.90)
+            kappa_block["abs_kappa_change_vs_hla_only"] = {
+                "upper95_one_sided": _r(upper_hla),
+                "ci90_low": _r(lo_h),
+                "ci90_high": _r(hi_h),
+                "n_valid_resamples": n_valid_h,
+                "required": "upper95_one_sided strictly below 0 (decision R1)",
+                "definition": "|kappa_model| - |kappa_HLA-only control|, "
+                              "allele-clustered bootstrap, seed-averaged within "
+                              "each resample",
+            }
+        else:
+            kappa_block["abs_kappa_change_vs_hla_only"] = {
+                "upper95_one_sided": UNMEASURED,
+                "ci90_low": UNMEASURED,
+                "ci90_high": UNMEASURED,
+                "n_valid_resamples": 0,
+                "required": "upper95_one_sided strictly below 0 (decision R1)",
             }
         entry["shortcut_dependence"] = kappa_block
         variants[name] = entry
@@ -1234,9 +1279,10 @@ def evaluate_runs(
             "Gate rule in force (decision D4), burden of proof on the model: (i) "
             "significant margin over the HLA-only control; (ii) non-inferiority: the "
             "upper 95% bound of |kappa_model| - |kappa_baseline| is at most "
-            f"{_r(NONINFERIORITY_MARGIN_KAPPA)}; (iv) not significantly worse than "
-            "the peptide-only control. (iii), an absolute ceiling on |kappa|, is NOT "
-            "implemented: its value is the researcher's decision."
+            f"{_r(NONINFERIORITY_MARGIN_KAPPA)}; (iii) (decision R1) the upper 95% "
+            "bound of |kappa_model| - |kappa_HLA-only control| is strictly below zero; "
+            "(iv) not significantly worse than the peptide-only control. An absolute "
+            "ceiling on |kappa| was considered and is not adopted."
         ),
         "test_set": {
             "n_records": len(test_idx),

@@ -7,10 +7,11 @@ This file is the executable form of the sentence in Section 7.7:
 
 The rule puts the burden of proof on the MODEL (decision D4). PASSED needs
 (i) a significant margin over the HLA-only control, (ii) the upper 95% bound of
-[|kappa_model| - |kappa_baseline|] at most NONINFERIORITY_MARGIN_KAPPA, and
-(iv) the model not significantly worse than the peptide-only control. Condition
-(iii), an absolute ceiling on |kappa_model|, is deliberately not implemented: its
-value is the researcher's decision and has not been given.
+[|kappa_model| - |kappa_baseline|] at most NONINFERIORITY_MARGIN_KAPPA, (iii) the
+upper 95% bound of [|kappa_model| - |kappa_HLA-only control|] strictly below zero
+(decision R1, added 2026-10-26), and (iv) the model not significantly worse than the
+peptide-only control. An absolute ceiling on |kappa_model| was considered for (iii) and
+is not adopted: its value would be an arbitrary constant.
 
 Every number below is illustrative: it pins the logic, it is not a measurement.
 
@@ -64,6 +65,7 @@ def gate(**overrides):
         hla_only_margin=SIGNIFICANT,
         peptide_only_margin=NOT_SIGNIFICANT,
         kappa_change_upper_bound=-0.10,
+        hla_kappa_change_upper_bound=-0.10,
         peptide_only_significantly_worse=False,
     )
     inputs.update(overrides)
@@ -138,6 +140,68 @@ def test_significant_margin_but_significantly_worse_than_peptide_only_fails():
     assert "(iv)" in result.reason and "(ii)" not in result.reason
 
 
+# --- (iii) R1: shortcut dependence anchored to the HLA-only control -------------
+def test_a_bound_above_zero_against_the_hla_only_control_fails_condition_iii():
+    result = gate(hla_kappa_change_upper_bound=0.03)
+    assert result.status is GateStatus.FAILED_SHORTCUT
+    assert not result.rankable
+    assert "(iii)" in result.reason and "HLA-only" in result.reason
+    assert "(ii)" not in result.reason and "(iv)" not in result.reason
+
+
+def test_a_bound_exactly_zero_against_the_hla_only_control_does_not_pass():
+    """Strictly below zero: a degenerate zero-width interval at zero, the model exactly
+    as shortcut-dependent as the control that is shortcut-dependent by construction,
+    must not pass."""
+    result = gate(hla_kappa_change_upper_bound=0.0)
+    assert result.status is GateStatus.FAILED_SHORTCUT
+    assert "(iii)" in result.reason
+
+
+def test_a_bound_just_below_zero_against_the_hla_only_control_passes():
+    assert gate(hla_kappa_change_upper_bound=-1e-9).status is GateStatus.PASSED
+
+
+def test_condition_iii_is_independent_of_condition_ii():
+    """Satisfying the baseline condition does not satisfy the HLA-only one, and the
+    other way round."""
+    only_iii = gate(kappa_change_upper_bound=-0.5, hla_kappa_change_upper_bound=0.01)
+    only_ii = gate(kappa_change_upper_bound=0.01, hla_kappa_change_upper_bound=-0.5)
+    assert only_iii.status is GateStatus.FAILED_SHORTCUT and "(iii)" in only_iii.reason
+    assert only_ii.status is GateStatus.FAILED_SHORTCUT and "(ii)" in only_ii.reason
+    assert "(iii)" not in only_ii.reason
+
+
+def test_unmeasured_hla_only_kappa_interval_blocks_a_pass():
+    result = gate(hla_kappa_change_upper_bound=None)
+    assert result.status is GateStatus.PENDING
+    assert not result.rankable
+    assert "HLA-only" in result.reason
+
+
+def test_omitting_the_hla_only_kappa_interval_is_pending_not_a_pass():
+    kwargs = dict(
+        headline_metric=0.93,
+        hla_only_margin=SIGNIFICANT,
+        peptide_only_margin=NOT_SIGNIFICANT,
+        kappa_change_upper_bound=-0.10,
+        peptide_only_significantly_worse=False,
+    )
+    result = evaluate_gate(**kwargs)
+    assert result.status is GateStatus.PENDING and not result.rankable
+
+
+def test_failure_of_all_three_shortcut_conditions_names_all_three():
+    result = gate(
+        kappa_change_upper_bound=0.2,
+        hla_kappa_change_upper_bound=0.2,
+        peptide_only_significantly_worse=True,
+    )
+    assert result.status is GateStatus.FAILED_SHORTCUT
+    for tag in ("(ii)", "(iii)", "(iv)"):
+        assert tag in result.reason
+
+
 def test_failure_of_both_conditions_names_both():
     result = gate(kappa_change_upper_bound=0.2, peptide_only_significantly_worse=True)
     assert result.status is GateStatus.FAILED_SHORTCUT
@@ -198,14 +262,16 @@ def test_gate_has_no_override_or_tolerance_parameter():
     assert not any("noninferiority" in name for name in params)
 
 
-def test_no_absolute_kappa_ceiling_is_implemented_and_the_gap_is_documented():
-    """Condition (iii) is the researcher's decision. It is a documented gap, not a
-    parameter and not a default."""
+def test_no_absolute_kappa_ceiling_is_implemented_and_the_choice_is_documented():
+    """An absolute ceiling on |kappa| was considered and is not adopted. Condition (iii)
+    is relative to the HLA-only control (decision R1); there is no ceiling parameter
+    and no default."""
     params = set(inspect.signature(evaluate_gate).parameters)
     assert not any("ceiling" in p or "max_abs" in p for p in params)
+    assert "hla_kappa_change_upper_bound" in params
     module_doc = inspect.getmodule(evaluate_gate).__doc__ or ""
     doc = (evaluate_gate.__doc__ or "") + module_doc
-    assert "(iii)" in doc and "not implemented" in doc.lower()
+    assert "(iii)" in doc and "ceiling" in doc.lower() and "not adopted" in doc.lower()
 
 
 def test_peptide_only_failure_is_reported_under_failed_shortcut():

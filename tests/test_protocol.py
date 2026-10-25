@@ -615,7 +615,60 @@ def test_the_kappa_change_is_a_gating_quantity_and_is_no_longer_labelled_informa
     assert set(change) >= {"upper95_one_sided", "ci90_low", "ci90_high",
                            "noninferiority_margin", "n_valid_resamples"}
     assert "non-inferiority" in report["kappa_gate_rule"]
-    assert "(iii)" in report["kappa_gate_rule"]      # the unimplemented ceiling is stated
+    rule = report["kappa_gate_rule"]
+    assert "(iii)" in rule and "HLA-only control" in rule    # decision R1
+    assert "ceiling" in rule and "not adopted" in rule        # the absolute ceiling
+
+
+def test_the_hla_only_kappa_interval_is_reported_and_the_model_that_beats_it_passes(
+    signal_world,
+):
+    w = signal_world
+    report = evaluate(w, assemble(w, *_signal_fns(w, 0.0, 0.3)))
+    v = report["variants"]["model"]
+    block = v["shortcut_dependence"]["abs_kappa_change_vs_hla_only"]
+    assert set(block) >= {"upper95_one_sided", "ci90_low", "ci90_high",
+                          "n_valid_resamples", "required", "definition"}
+    assert float(block["upper95_one_sided"]) < 0
+    assert v["gate"]["status"] == GateStatus.PASSED.value, v["gate"]
+    assert "HLA-only control" in v["gate"]["reason"]
+
+
+def test_a_model_as_biased_as_a_saturated_baseline_is_stopped_by_condition_iii(
+    signal_world,
+):
+    """The weakness R1 closes. Model and baseline both score alleles almost entirely by
+    their training rate, so |kappa| is at its maximum for both and the change against
+    the baseline has a degenerate interval at zero, which satisfies (ii). The HLA-only
+    control is shortcut-dependent by construction (kappa at its maximum), so the change
+    against it is also zero and (iii) fails: the model is not shown to be LESS
+    shortcut-dependent than the control."""
+    w = signal_world
+    model, hla, pep, base = _signal_fns(w, model_shortcut=50.0, base_shortcut=50.0)
+    report = evaluate(w, assemble(w, model, hla, pep, base))
+    v = report["variants"]["model"]
+    assert v["margin_vs_hla_only"]["significant"] is True
+    change = v["shortcut_dependence"]["abs_kappa_change"]
+    assert float(change["upper95_one_sided"]) <= 0.0, "scenario precondition: (ii) is met"
+    assert v["gate"]["status"] == GateStatus.FAILED_SHORTCUT.value, v["gate"]
+    assert "(iii)" in v["gate"]["reason"] and "(ii)" not in v["gate"]["reason"]
+    assert v["rank"] == UNMEASURED and report["ranking"] == []
+
+
+def test_an_undefined_hla_only_kappa_withholds_the_pass(signal_world):
+    """An HLA-only control that scores every record the same has no defined kappa; the
+    interval for (iii) is then unmeasured and the model is PENDING, not passed."""
+    w = signal_world
+    model, _, pep, base = _signal_fns(w, 0.0, 0.3)
+
+    def flat(s, rng):
+        return np.zeros(w.n)
+
+    report = evaluate(w, assemble(w, model, flat, pep, base))
+    v = report["variants"]["model"]
+    assert v["gate"]["status"] == GateStatus.PENDING.value, v["gate"]
+    assert v["gate"]["rankable"] is False and report["ranking"] == []
+    assert "HLA-only" in v["harness_note"]
 
 
 def test_missing_baseline_withholds_the_pass_instead_of_comparing_to_nothing(

@@ -465,6 +465,9 @@ def evaluate(
         note(f"{name}: kappa {sd['kappa_mean']}; baseline kappa {sd['baseline_kappa']}; "
              f"kappa change upper95 {change['upper95_one_sided']} "
              f"(non-inferiority margin {change['noninferiority_margin']})")
+        vs_hla = sd["abs_kappa_change_vs_hla_only"]
+        note(f"{name}: kappa change over the HLA-only control upper95 "
+             f"{vs_hla['upper95_one_sided']} (must be below 0)")
         note(f"{name}: HLA-only margin p {h['p_value']}, Holm-adjusted "
              f"{h.get('p_value_holm', UNMEASURED)}, 90% interval "
              f"[{h['ci90_low']}, {h['ci90_high']}]")

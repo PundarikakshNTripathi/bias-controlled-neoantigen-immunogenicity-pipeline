@@ -16,13 +16,16 @@ The burden of proof is on the model (decision D4). PASSED requires all of:
     (ii)  the upper 95% bound of [ |kappa_model| - |kappa_baseline| ] is at most
           NONINFERIORITY_MARGIN_KAPPA, so a model must be shown NOT to be more
           shortcut-dependent than the baseline, not merely not shown to be;
+    (iii) the upper 95% bound of [ |kappa_model| - |kappa_HLA-only control| ] is
+          strictly below zero (decision R1, 2026-10-26): the model must be shown to
+          be LESS shortcut-dependent than the control that is shortcut-dependent by
+          construction, so a model exactly as biased as its baseline, with a
+          degenerate zero-width interval, is stopped here;
     (iv)  the model is not significantly worse than its peptide-only control.
 
-Condition (iii), an absolute ceiling on |kappa_model|, is NOT implemented. Its
-value is a scientific judgement that belongs to the researcher and has not been
-given; there is no parameter and no default for it. Until it exists, a model
-exactly as shortcut-dependent as its baseline, with a degenerate zero-width
-interval, is not stopped by (ii) alone.
+An absolute ceiling on |kappa_model| was considered for (iii) and is not adopted:
+its value would be an arbitrary constant, whereas the matched HLA-only control is
+an anchor that exists in the data. There is no ceiling parameter and no default.
 
 The five reachable states are enumerated in `GateStatus` and tested as a truth
 table. There is deliberately no "force" or "override" argument, and the
@@ -72,9 +75,10 @@ def render_metric(value: float | None, digits: int = 4) -> str:
 class GateStatus(str, Enum):
     """The states a model variant can be in.
 
-    Condition (iv), significantly worse than the peptide-only control, is
-    reported under FAILED_SHORTCUT together with condition (ii). That is a
-    design choice for the researcher to ratify; the reason string names which
+    Conditions (iii) and (iv) (not shown to be less shortcut-dependent than the
+    HLA-only control; significantly worse than the peptide-only control) are
+    reported under FAILED_SHORTCUT together with condition (ii). Filing (iv) there
+    is a design choice for the researcher to ratify; the reason string names which
     condition failed.
     """
 
@@ -86,8 +90,9 @@ class GateStatus(str, Enum):
 
     FAILED_SHORTCUT = "failed_shortcut"
     """Margin is significant, but condition (ii) (shortcut dependence not shown to
-    be no higher than the baseline's) or condition (iv) (significantly worse than
-    the peptide-only control) failed. Reported, not ranked. DESIGN CHOICE for the
+    be no higher than the baseline's), condition (iii) (not shown to be lower than
+    the HLA-only control's) or condition (iv) (significantly worse than the
+    peptide-only control) failed. Reported, not ranked. DESIGN CHOICE for the
     researcher to ratify: (iv) is reported under this status rather than under a
     sixth one, and the reason string names which condition failed."""
 
@@ -155,6 +160,7 @@ def evaluate_gate(
     hla_only_margin: ControlMargin | None = None,
     peptide_only_margin: ControlMargin | None = None,
     kappa_change_upper_bound: float | None = None,
+    hla_kappa_change_upper_bound: float | None = None,
     peptide_only_significantly_worse: bool | None = None,
 ) -> GateResult:
     """Apply the acceptance rule to one model variant.
@@ -177,13 +183,16 @@ def evaluate_gate(
         evaluation harness (an allele-clustered bootstrap). Condition (ii) is
         `kappa_change_upper_bound <= NONINFERIORITY_MARGIN_KAPPA`. None means
         the interval was not measured, which blocks a pass.
+    hla_kappa_change_upper_bound
+        Upper 95% bound of |kappa_model| - |kappa_HLA-only control|, from the same
+        allele-clustered bootstrap. Condition (iii) requires it strictly below zero.
+        None means the interval was not measured, which blocks a pass.
     peptide_only_significantly_worse
         True when the harness found the model significantly worse than the
         peptide-only control (one-sided, alpha 0.05, opposite tail). Condition
         (iv). None means the comparison was not made, which blocks a pass.
 
-    Condition (iii), an absolute ceiling on |kappa_model|, is not implemented;
-    see the module docstring.
+    An absolute ceiling on |kappa_model| is not adopted; see the module docstring.
 
     Returns
     -------
@@ -244,6 +253,15 @@ def evaluate_gate(
             ),
             rankable=False,
         )
+    if hla_kappa_change_upper_bound is None:
+        return GateResult(
+            status=GateStatus.PENDING,
+            reason=(
+                "The interval for the change in shortcut dependence kappa relative "
+                "to the HLA-only control has not been measured."
+            ),
+            rankable=False,
+        )
     if peptide_only_significantly_worse is None:
         return GateResult(
             status=GateStatus.PENDING,
@@ -258,6 +276,13 @@ def evaluate_gate(
             f"the baseline is {kappa_change_upper_bound:+.4f}, above the "
             f"non-inferiority margin {NONINFERIORITY_MARGIN_KAPPA:+.4f}; shortcut "
             "dependence is not shown to be no higher than the baseline's"
+        )
+    if hla_kappa_change_upper_bound >= 0.0:
+        failed.append(
+            "condition (iii): the upper 95% bound of the change in |kappa| over the "
+            f"HLA-only control is {hla_kappa_change_upper_bound:+.4f}, not below zero; "
+            "the model is not shown to be less shortcut-dependent than the HLA-only "
+            "control"
         )
     if peptide_only_significantly_worse:
         failed.append(
@@ -281,8 +306,9 @@ def evaluate_gate(
             f"Exceeds the HLA-only control ({hla_margin.render()}); the upper "
             "95% bound of the change in |kappa| over the baseline is "
             f"{kappa_change_upper_bound:+.4f} (margin "
-            f"{NONINFERIORITY_MARGIN_KAPPA:+.4f}); not significantly worse than "
-            "the peptide-only control."
+            f"{NONINFERIORITY_MARGIN_KAPPA:+.4f}) and "
+            f"{hla_kappa_change_upper_bound:+.4f} over the HLA-only control; not "
+            "significantly worse than the peptide-only control."
         ),
         rankable=True,
     )
