@@ -12,6 +12,7 @@ static table.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +50,18 @@ def main() -> None:
     if branch:
         state = f"{len(dirty.splitlines())} uncommitted file(s)" if dirty else "clean"
         lines.append(f"Git: branch `{branch}`, {state}.")
+
+    roadmap = project / "docs" / "ROADMAP.md"
+    if roadmap.exists():
+        text = roadmap.read_text(encoding="utf-8", errors="ignore")
+        current = re.search(r"^Current module:\s*(.+)$", text, re.MULTILINE)
+        stage_state = re.search(r"^State:\s*(.+)$", text, re.MULTILINE)
+        if current and stage_state:
+            name, status = current.group(1).strip(), stage_state.group(1).strip()
+            lines.append(
+                f"Roadmap: {name} is {status}. "
+                "`/next` runs or resumes it (plan, build, verify, commit, push)."
+            )
 
     built, pending = [], []
     for tag, name, rel in MODULES:

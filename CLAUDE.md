@@ -119,6 +119,14 @@ M(a)     = {j : I(x_j;y|a) > τ}       adaptive per-allele masking policy
 - **Ask before adding a dependency.** The compute and the complexity budget are
   both small and fixed.
 
+## Roadmap workflow
+
+The remaining work is eight stages in `docs/ROADMAP.md`, which also holds the state. The
+researcher types `/next`: plan mode for the current stage, then on approval build, verify,
+document, commit, push and update the roadmap. A stage interrupted by a usage limit resumes
+with the same command, from the checklist under "In progress". If the user says "continue",
+"next" or "go", follow `.claude/skills/next/SKILL.md`.
+
 ## Upstream references
 
 - Shortcut-bias paper (central reference): Zhang et al., *Cross-task

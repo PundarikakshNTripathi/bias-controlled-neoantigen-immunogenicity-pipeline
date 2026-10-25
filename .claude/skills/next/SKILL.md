@@ -1,44 +1,73 @@
 ---
 name: next
-description: Decide what to work on next, based on the real state of the repo and the semester deadlines. Use at the start of a working session.
-allowed-tools: Read Grep Glob Bash(git log:*) Bash(git status:*) Bash(nbx:*) Bash(python scripts/verify.py:*)
+description: Run the next roadmap stage end to end. Plans it in plan mode, waits for approval, then builds, verifies, documents, commits and pushes it, and updates docs/ROADMAP.md. Also resumes a stage interrupted by a usage limit. Use at the start of any working session.
+allowed-tools: Read Grep Glob Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git add:*) Bash(git commit:*) Bash(git push origin main) Bash(python:*) Bash(.venv/Scripts/python.exe:*) Bash(nbx:*)
 ---
 
-## What next
+# /next: run one roadmap stage
 
-Work out the real state, then propose one thing.
+`docs/ROADMAP.md` lists eight stages and holds the state. This skill moves exactly one stage forward
+per run. The researcher types only `/next`.
 
-1. Run `nbx status` and `git log --oneline -10`.
-2. Check `python scripts/verify.py --fast` is green. If it is not, that is the
-   next thing, and nothing else is.
-3. Read the priority order below and find the first item not yet done.
-4. Propose **one** concrete next task, small enough to finish in a sitting, and
-   say what "done" means for it in terms that can be checked by running a
-   command.
+## 0. Orient (cheap)
 
-## Priority order
+1. Read `docs/ROADMAP.md`: the Status block, the "In progress" block, and the section of the
+   current stage only. Do not read other stages.
+2. Confirm the virtual environment is active (`python -c "import sys; print(sys.prefix)"` shows a
+   `.venv` path). If not, say so in one line and stop.
+3. `git status --short`. If `docs/ROADMAP.md`, `.claude/skills/next/SKILL.md`, the session hook or
+   `CLAUDE.md` are uncommitted setup changes, they are committed first as `chore: add roadmap
+   workflow` as soon as plan approval allows it (not before, if still in plan mode).
 
-The ordering follows the project's own logic: the protocol ships before the
-model, and bias measurement precedes training.
+## 1. Resume, if a stage is IN PROGRESS
 
-1. **M1 data harmonisation** — nothing downstream is interpretable without a
-   canonical corpus carrying provenance.
-2. **M2 applied to real data** — the bias diagnostics are built and tested, but
-   have not been run on an actual corpus. Computing per-allele ρ on a public
-   dataset and showing the distribution is the first genuine result, and it
-   evaluates H1 and H2.
-3. **M6 evaluation harness orchestration** — the gate, the metrics and the
-   split construction exist; the runner that executes a variant with its
-   matched controls across seeds does not.
-4. **M4 model core with null-control variants** — including reproducing the
-   published baselines before any immunogenicity claim (FR-44).
-5. **M5 adaptive masking** — the policy is implemented; the ablation against
-   uniform masking is not.
-6. **M3 representation service** — the geometric channel is the expensive part;
-   plan compute before starting.
-7. **M7 release packaging.**
+If `State: IN PROGRESS`: say in one line which stage and which step is next, run
+`git diff --stat`, decide whether any uncommitted work is complete (finish it, or discard it and say
+so), and go to step 3. Do not re-plan: the approved checklist in "In progress" is the plan.
 
-## Reminder
+## 2. Otherwise plan the current stage, in plan mode
 
-Deliverable D1 is the benchmark protocol, not a model. If a choice is between
-making the protocol solid and making a model look better, the protocol wins.
+1. Call `EnterPlanMode` (load its schema with `ToolSearch` if it is not available).
+2. In plan mode, do the read-only investigation the stage needs. Where the stage lists "decided in
+   the plan", compute the evidence read-only and put the concrete proposal in the plan, so approving
+   the plan approves the decision. Use `AskUserQuestion` only for a real choice the evidence cannot
+   settle.
+3. Write the plan: context, a numbered checklist of at most about twelve steps (each with the
+   command that proves it and a commit boundary), decisions with recommendations, risks, what will
+   be documented, and the final verification. Honour every rule in `CLAUDE.md` and the approved
+   decisions in the roadmap.
+4. Call `ExitPlanMode`. After approval, copy the checklist into "In progress" in `docs/ROADMAP.md`,
+   set `State: IN PROGRESS`, commit the setup files and this change, and go to step 3.
+
+## 3. Execute without further prompting
+
+- Work the checklist in order. Test first for anything load-bearing. After each step run its check,
+  commit (conventional prefix, one concern, no attribution lines) and tick the checklist in the same
+  commit. Use `python scripts/verify.py --fast` between steps and the full run only at the end.
+- Stay inside the approved plan. Do not ask for permission for things the plan already covers. If a
+  step cannot be done as written, or needs something outside the plan, stop, say exactly what is
+  needed and why, record it under "In progress", and do not improvise a rule or a threshold.
+- Agents only where the stage names them: one at a time, always with `model: "sonnet"`, never in the
+  background. Check an agent's claims by running the command yourself before acting on them.
+- Long computations (calibration, training) run as background commands. Check them at long intervals
+  with a cheap listing, not by reading logs repeatedly.
+- Never run anything that edits `artefacts/splits/`, adds `force`/`override`/`skip_controls`, or
+  writes a number into documentation without a command and artefact that produced it.
+
+## 4. Finish
+
+1. `python scripts/verify.py` (full). Paste the actual output tail. If it fails, fix it; do not mark done.
+2. Document: a dated entry in `docs/progress.md` (what was built, measured with commands, caveats,
+   what is not done); README State and Commands tables and the `CLAUDE.md` architecture table if
+   state changed; a deviation-log entry in `docs/analysis_plan.md` for any departure from the
+   pre-registration. Results go in `docs/results/` with the command and report hash beside every table.
+3. In `docs/ROADMAP.md`: set the stage to DONE with date and commit hash, empty "In progress", set
+   `Current module` to the next TODO stage and `State: TODO`.
+4. Commit the documentation, then `git push origin main`. If the push fails, report the error and stop.
+5. Final message, at most ten lines: what was done, the key outcomes and limits, the verification
+   result, and the name of the next stage. Then stop. Do not begin the next stage.
+
+## Limits
+
+If the session is cut by a usage limit, nothing is lost beyond the step in progress: every finished
+step is committed and ticked. The next `/next` resumes from section 1.
