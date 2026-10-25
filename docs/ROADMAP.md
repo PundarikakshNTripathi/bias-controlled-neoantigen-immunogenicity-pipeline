@@ -39,8 +39,8 @@ Stage 1: Harden the evaluation. Plan approved 2026-10-26. Tick each step in the 
   sizes from the grouped majority split, target 1,500 replicates each); write
   `docs/results/calibration.md` with the R3 verdict.
 - [ ] 7. Only if R3 fails: percentile-t, then allele permutation, test-first, recalibrated.
-- [ ] 8. `scripts/mutation_test.py`, 17 roadmap mutations plus removal of (iii); `docs/results/mutation.md`.
-- [ ] 9. A test for every non-equivalent survivor (fails on the mutant, passes on the code).
+- [x] 8. `scripts/mutation_test.py`, 17 roadmap mutations plus removal of (iii); `docs/results/mutation.md`.
+- [x] 9. A test for every non-equivalent survivor (fails on the mutant, passes on the code).
 - [ ] 10. (decisions part committed; results to add) Pre-registration addendum in the deviation log of `docs/analysis_plan.md`.
 - [ ] 11. Full `verify.py`; `docs/progress.md`, README, CLAUDE.md; roadmap Stage 1 DONE; push.
 

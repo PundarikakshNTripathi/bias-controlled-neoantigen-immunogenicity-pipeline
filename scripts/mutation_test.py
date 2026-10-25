@@ -134,11 +134,14 @@ def imports_from_copy(copy: Path) -> bool:
     return out.returncode == 0 and copy.resolve() in path.parents
 
 
+PYTEST_FILTER: list[str] = []
+
+
 def run_tests(copy: Path, timeout: int) -> tuple[int, str, float]:
     t0 = time.perf_counter()
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", *TEST_FILES, "-x", "-q",
+            [sys.executable, "-m", "pytest", *TEST_FILES, *PYTEST_FILTER, "-x", "-q",
              "-p", "no:cacheprovider"],
             cwd=copy, env=env_for(copy), capture_output=True, text=True, timeout=timeout,
         )
@@ -192,7 +195,11 @@ def main() -> int:
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--parallel", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=1500)
+    parser.add_argument("--k", default=None,
+                        help="pytest -k expression, for a targeted re-check only")
     args = parser.parse_args()
+    if args.k:
+        PYTEST_FILTER.extend(["-k", args.k])
 
     chosen = [m for m in MUTATIONS if not args.only or m.mid in args.only]
     work = Path(tempfile.mkdtemp(prefix="nbx_mutation_"))

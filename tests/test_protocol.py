@@ -730,6 +730,49 @@ def test_margin_power_is_not_trivially_zero():
     assert worse.significantly_worse is True and worse.p_value > 0.5
 
 
+def test_the_bootstrap_averages_over_every_seed_not_just_the_first():
+    """Mutation M05 survived the first suite: only the first seed was bootstrapped. Seed 1
+    here has a real margin and seeds 2 to 5 have a reversed one, so the seed-averaged
+    margin is negative; a bootstrap of the first seed alone would call it significantly
+    positive."""
+    n_alleles, per = 20, 20
+    labels = np.tile([1, 0], n_alleles * per // 2)
+    allele_idx = np.repeat(np.arange(n_alleles), per)
+    counts = stats.cluster_counts(n_alleles, 200, seed=1)
+    rng = np.random.default_rng(3)
+    good = labels * 1.0 + rng.normal(size=labels.size)
+    bad = -labels * 1.0 + rng.normal(size=labels.size)
+    ctrl = [rng.normal(size=labels.size) for _ in range(5)]
+    est = stats.margin_over_control([good, bad, bad, bad, bad], ctrl, labels,
+                                    allele_idx, counts)
+    assert est.delta < 0.0
+    assert est.p_value is not None and est.p_value > 0.5
+    assert est.significantly_worse is True
+    assert est.ci90_low <= est.delta <= est.ci90_high   # the point estimate and its
+                                                        # interval describe one statistic
+
+
+def test_the_margin_bootstrap_resamples_alleles_not_records(signal_world, monkeypatch):
+    """Mutation M04 survived the first suite: records were resampled as clusters. The
+    cluster of the margin bootstrap is the allele (analysis plan section 5)."""
+    w = signal_world
+    seen = []
+    real = stats.margin_over_control
+
+    def spy(model_scores, control_scores, labels, allele_idx, counts):
+        seen.append((np.asarray(allele_idx), np.asarray(counts)))
+        return real(model_scores, control_scores, labels, allele_idx, counts)
+
+    monkeypatch.setattr(protocol.stats, "margin_over_control", spy)
+    evaluate(w, _good_runs(w))
+    n_alleles = len(set(w.test_alleles))
+    assert seen
+    for idx, counts in seen:
+        assert len(np.unique(idx)) == n_alleles
+        assert counts.shape[1] == n_alleles
+        assert np.all(counts.sum(axis=1) == n_alleles)
+
+
 # ==========================================================================
 # Reporting rules
 # ==========================================================================
@@ -928,6 +971,22 @@ def test_valid_layout_round_trips_through_disk(tmp_path, signal_world):
     )
     in_memory = evaluate(w, runs)
     assert report_to_json(from_disk) == report_to_json(in_memory)
+
+
+def test_refuses_a_seed_file_that_repeats_a_record_index(tmp_path, signal_world, capsys):
+    """Mutation M13 survived the first suite: a repeated index was silently collapsed
+    to its last score."""
+    import pandas as pd
+
+    w = signal_world
+    run_dir = _write(tmp_path, w, _good_runs(w))
+    seed_file = sorted((run_dir / "model").glob("seed_*.parquet"))[0]
+    frame = pd.read_parquet(seed_file)
+    pd.concat([frame, frame.iloc[[0]]], ignore_index=True).to_parquet(seed_file)
+    with pytest.raises(ProtocolRefusal, match="repeats a record index"):
+        run_protocol(run_dir, w.record.content_hash, n_boot=N_BOOT, ranking_k=K)
+    out = capsys.readouterr()
+    assert out.out == "" and out.err == ""
 
 
 def test_refuses_when_split_hash_differs(tmp_path, signal_world, capsys):
