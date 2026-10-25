@@ -41,7 +41,7 @@ Stage 1: Harden the evaluation. Plan approved 2026-10-26. Tick each step in the 
 - [ ] 7. Only if R3 fails: percentile-t, then allele permutation, test-first, recalibrated.
 - [ ] 8. `scripts/mutation_test.py`, 17 roadmap mutations plus removal of (iii); `docs/results/mutation.md`.
 - [ ] 9. A test for every non-equivalent survivor (fails on the mutant, passes on the code).
-- [ ] 10. Pre-registration addendum in the deviation log of `docs/analysis_plan.md`.
+- [ ] 10. (decisions part committed; results to add) Pre-registration addendum in the deviation log of `docs/analysis_plan.md`.
 - [ ] 11. Full `verify.py`; `docs/progress.md`, README, CLAUDE.md; roadmap Stage 1 DONE; push.
 
 Notes: `PROMPTS.md` and `starter.md` are not part of this stage and stay uncommitted.

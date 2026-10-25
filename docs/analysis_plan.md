@@ -176,3 +176,72 @@ then the bootstrap is known to be calibrated only on small synthetic regimes, wh
 independent check measured it as mildly liberal, and no statement is made about its
 behaviour at the real admitted-allele count.
 
+
+### 2026-10-26: decisions R1 to R14 recorded; gate condition (iii)
+
+No model has been trained or evaluated in this repository at this date. This entry records,
+before any model run, the decisions the researcher approved on 2026-10-11 (master plan v2,
+section 3) and the one change to the acceptance gate that follows from them. The original
+text above is not edited. Source of the decisions: `docs/ROADMAP.md`.
+
+1. **R1, gate condition (iii), implemented.** The earlier entry (2026-10-11, items 1 and 2)
+   left condition (iii) unimplemented and noted that a model exactly as shortcut-dependent as
+   its baseline, with a zero-width interval, could satisfy (ii). Condition (iii) is now
+   implemented as an added condition: the upper 95% bound of
+   `|kappa_model| - |kappa_HLA-only control|`, from the same allele-clustered bootstrap, must
+   be strictly below zero. Conditions (ii) and (iv) are unchanged, so the rule only tightens.
+   A missing or undefined interval gives `PENDING`. The absolute ceiling on `|kappa|` is
+   considered and not adopted, because its value would be an arbitrary constant. Code and
+   truth table: commit 74840e0 (`gate.py`, `tests/test_gate.py`, `tests/test_protocol.py`).
+2. **R2, ratified design choices.** The peptide-only condition is filed under
+   `FAILED_SHORTCUT`; ties use the seed-free expected average precision; ranking_k is 20 and
+   100, both reported; MCC uses the top-n_pos threshold.
+3. **R3, calibration rule.** The margin test is acceptable if the upper end of the 95%
+   binomial interval of its false-significance rate, at one-sided alpha 0.05, is at most
+   0.07, at about 69 admitted alleles of unequal size. Otherwise it is replaced by a
+   percentile-t clustered bootstrap, then by an allele-level permutation test, whichever
+   first meets the rule. The number of replicates is "at least 400". At 400 replicates a test
+   whose true rate is 0.05 has an exact upper bound of about 0.076 and would fail the rule
+   more often than not, so the run uses more replicates (1,500 per scenario); the 0.07 bound
+   and the decision order are unchanged. The interval used is the exact Clopper-Pearson
+   interval. Source: `scripts/calibrate_margin_test.py`, written before any result.
+4. **R4, assay scope.** Functional T cell assays are primary; all assays are a declared
+   sensitivity analysis. The classification of assay types is shown and ratified before any
+   model run.
+5. **R5, minimum test records per admitted allele.** 20, or 10 if fewer than 40 alleles
+   remain at 20. Alleles below it are reported separately and never pooled into headline
+   metrics.
+6. **R6, group-label validation.** The splitter raises on null, NaN or mixed-type group
+   labels.
+7. **R7, corpora.** The ImmuBPI training corpus is primary and the IEDB T cell corpus is the
+   replication. The overlap between them is measured and reported, and cross-corpus
+   statements use de-duplicated pairs. The licence question (MIT in the repository,
+   Apache-2.0 on Zenodo) is resolved before any use beyond the local download.
+8. **R8, H2 operationalisation.** Per allele, `|rho(a)|` is tested against the size of the
+   shortcut in the peptide-aware model's allele-mean score, by Spearman correlation with the
+   allele as the unit, at least 1,000 permutations and allele-bootstrap intervals, in each
+   corpus separately. H2 is supported only if sign and significance replicate in the second
+   corpus. The HLA-only control is reported as the reference upper end, not as the test.
+9. **R9, commits and pushes** are approved at the end of every stage once verification
+   passes.
+10. **R10, hooks** run with the virtual-environment interpreter (commit 9a994ea).
+11. **R11, PyTorch** is installed into an optional `ml` extra, newest CUDA build that passes a
+    kernel smoke test on the GPU, otherwise CPU.
+12. **R12, scope cuts.** H4, language-model embeddings and structure features are dropped from
+    the academic deliverable and named as future work. H3 is attempted only if time allows.
+13. **R13, no tuning.** No hyperparameter search for any variant; seeds 1 to 5; matched
+    settings. The model may underperform a tuned one; no claim of state of the art is made.
+14. **R14, FR-44 target.** The published target figure, with source and locator, is fixed by
+    a literature check before any training and committed first. If the reproduction misses
+    its stated tolerance, later comparisons use the reproduced baseline, labelled as such.
+
+Two further clarifications, both fixed before any evaluation:
+
+- **H1, the meaning of "competitive".** The HLA-only control is competitive with a published
+  model on a benchmark if its AUPRC is not significantly lower than that model's under the
+  same paired, allele-clustered bootstrap (one-sided, alpha 0.05, opposite tail). The
+  refutation condition in section 1 is unchanged. How the per-model outcomes on a benchmark
+  are aggregated is written into the Stage 4 plan before any figure is computed.
+- **Early stopping.** Every variant, model and controls alike, stops on validation AUPRC.
+  The Synopsis wording (a validation AUROC) is older; `configs/ablation.yaml` already names
+  `val_auprc`, in line with AUPRC as the headline metric.
