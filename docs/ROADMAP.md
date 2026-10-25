@@ -33,7 +33,7 @@ Stage 1: Harden the evaluation. Plan approved 2026-10-26. Tick each step in the 
 - [x] 3. R1 as an added condition (iii): truth table first, then `gate.py` (upper 95% bound of
   |kappa_model| - |kappa_HLA-only| strictly below zero; missing gives PENDING; no override).
 - [x] 4. Wire (iii) into `protocol.py` (report block, `kappa_gate_rule` text) with protocol tests.
-- [ ] 5. `scripts/calibrate_margin_test.py` (resumable, deterministic) and a 20-replicate pilot at
+- [x] 5. `scripts/calibrate_margin_test.py` (resumable, deterministic) and a 20-replicate pilot at
   B = 10,000; timing recorded; B and replicate count decided from it.
 - [ ] 6. Run the calibration (S1 noise-vs-noise, S2 lookup control vs zero-skill model, empirical allele
   sizes from the grouped majority split, target 1,500 replicates each); write
