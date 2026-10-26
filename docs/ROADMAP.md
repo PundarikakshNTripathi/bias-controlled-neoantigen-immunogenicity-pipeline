@@ -11,7 +11,7 @@ State: TODO
 
 | Stage | Title | Tier | State | Finished | Commit |
 |---|---|---|---|---|---|
-| 1 | Harden the evaluation | A | DONE | 2026-10-26 | 5098811 |
+| 1 | Harden the evaluation | A | DONE | 2026-10-26 | ad81f07 |
 | 2 | Data and frozen splits | A | TODO | | |
 | 3 | The model and its controls | A | TODO | | |
 | 4 | H1 on the published benchmarks | A | TODO | | |
