@@ -245,3 +245,18 @@ Two further clarifications, both fixed before any evaluation:
 - **Early stopping.** Every variant, model and controls alike, stops on validation AUPRC.
   The Synopsis wording (a validation AUROC) is older; `configs/ablation.yaml` already names
   `val_auprc`, in line with AUPRC as the headline metric.
+
+Results of the two checks of the evaluation module, run after the entry above (they describe
+the test and its test suite, not any model):
+
+- **R3 calibration: rule met, test unchanged.** On the S1 and S2 scenarios at 1,500 replicates
+  each, the upper end of the exact 95% interval of the false-significance rate is below 0.07
+  (S1 rate 0.0513, upper 0.0637; S2 zero in 1,500, upper 0.0025). S2 is conservative, so a
+  supplementary scenario S3 (added after S1 and S2 were declared) gave rate 0.0567 with upper
+  end 0.0696: inside the rule by 0.0004, and a slightly liberal test is not excluded. The
+  replacement tests (percentile-t, permutation) were not needed and were not built. Source:
+  `docs/results/calibration.md`, commit 6bc7ae7.
+- **Mutation test: 19 of 19 killed after three added tests.** The first run killed 16 and
+  three survived (M04, M05, M13), none equivalent; tests were added in commit 0fa26f7 and the
+  rerun killed all 19. This shows the suite notices those 19 defects, not that none could
+  escape. Source: `docs/results/mutation.md`, commit 8d5838e.

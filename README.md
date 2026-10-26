@@ -77,13 +77,15 @@ was labelled in training.
 
 Implemented in `src/nbx/evaluate/gate.py` and specified by the truth table in
 `tests/test_gate.py`. The burden of proof is on the model. A variant is rankable only
-if all three conditions hold:
+if all four conditions hold:
 
 1. its margin over the matched HLA-only control, in the headline metric, is
    significant (one-sided, allele-clustered bootstrap);
 2. the upper 95% bound of the change in |kappa| relative to the baseline does not
    exceed a non-inferiority margin of zero;
-3. it is not significantly worse than the matched peptide-only control.
+3. the upper 95% bound of the change in |kappa| relative to its own matched HLA-only
+   control is strictly below zero;
+4. it is not significantly worse than the matched peptide-only control.
 
 A variant is in one of five states:
 
@@ -91,8 +93,8 @@ A variant is in one of five states:
 |---|---|
 | `PENDING` | A mandated null control or a required input is missing. No metric is displayed. |
 | `NOT_SIGNIFICANT` | Controls present; margin over the HLA-only control not significant. No rank. |
-| `FAILED_SHORTCUT` | Margin significant but condition 2 or 3 failed; the failed condition is named. Reported, not ranked. |
-| `PASSED` | All three conditions hold. Ranked, margin shown. |
+| `FAILED_SHORTCUT` | Margin significant but condition 2, 3 or 4 failed; the failed condition is named. Reported, not ranked. |
+| `PASSED` | All four conditions hold. Ranked, margin shown. |
 | `CONTROL` | The row is itself a null control. Never ranked. |
 
 An earlier version compared a model's kappa with the baseline's point estimate. An
@@ -119,7 +121,7 @@ measured render as an em dash and never as zero.
 | M3 Representation service | `nbx.represent.cache` | contract only |
 | M4 Model core | `nbx.model.backbone` | contract only |
 | M5 Masking policy | `nbx.bias.policy` | built, tested |
-| M6 Evaluation harness | `nbx.evaluate` | built and tested on synthetic predictions (gate, metrics, tie-exact AUPRC, clustered bootstrap, `nbx eval`); never run on real model output; FR-65 and the published-model reproduction not done |
+| M6 Evaluation harness | `nbx.evaluate` | built and tested on synthetic predictions (gate with four conditions, metrics, tie-exact AUPRC, clustered bootstrap, `nbx eval`); margin test calibrated and test suite mutation-tested (Stage 1); never run on real model output; FR-65 and the published-model reproduction not done |
 | M7 Release packaging | `nbx.release` | contract only |
 
 Hypotheses H1 to H4 have not been evaluated. Until they are, results are shown as
@@ -259,8 +261,8 @@ each allele; or a peptide-only control scores two records of the same peptide
 differently. The report labels control rows `CONTROL`, flags the baseline
 `reference_only`, and shows the margin beside every model metric.
 
-Tested on synthetic predictions only (251 tests pass under `python scripts/verify.py`;
-the count is that of the run on 2026-10-11). Three synthetic scenarios pin the
+Tested on synthetic predictions only (264 tests are collected and `python scripts/verify.py`
+passes, run on 2026-10-26). Three synthetic scenarios pin the
 behaviour that motivated the design: a model that scores only by allele is
 `NOT_SIGNIFICANT`; a model that adds a peptide signal to an allele shortcut is
 `FAILED_SHORTCUT`; a model driven by the peptide with low kappa is `PASSED`. These
@@ -274,9 +276,11 @@ Known limits, also stated in the harness report:
   detected only when the digest is pinned with `--records-digest`.
 - The baseline's identity is read from the run directory, not pinned in the analysis
   plan.
-- The bootstrap's behaviour at the real admitted-allele count and unequal allele sizes
-  has not been calibrated, and a mutation test of the suite has not been run. Both are
-  recorded as not done in `docs/analysis_plan.md`.
+- The margin test was calibrated at the real admitted-allele regime with synthetic scores
+  (`docs/results/calibration.md`): the pre-registered rule is met, but a supplementary
+  scenario sits close to its bound, so a slightly liberal test is not excluded. The suite
+  was mutation-tested on 19 defects, all killed after three tests were added
+  (`docs/results/mutation.md`); that is a small sample of possible defects.
 - FR-65 (control sets with inverted intra-allelic imbalance) and the acceptance
   reproduction of a published model on a published benchmark are not done.
 

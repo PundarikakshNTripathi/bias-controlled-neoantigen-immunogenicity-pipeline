@@ -321,3 +321,32 @@ peptide-only condition under `FAILED_SHORTCUT`, of the neutral tie definition, o
 `ranking_k` = 20 and 100, and of the MCC rule; the assay-scope list; the minimum test
 records per admitted allele; which corpus is primary; the H2 operationalisation; and
 approval to freeze splits and to install `torch`.
+
+---
+
+## 2026-10-26 — Stage 1: the evaluation hardened
+
+**Built.**
+- Gate condition (iii), decision R1: the upper 95% bound of |kappa_model| minus
+  |kappa_HLA-only control| must be strictly below zero. Added to conditions (ii) and
+  (iv), so the rule only tightens; a missing interval gives `PENDING`. Truth table in
+  `tests/test_gate.py` first; wired into `nbx.evaluate.protocol` and `nbx eval`.
+- Hooks run with the virtual-environment interpreter (R10).
+- `scripts/calibrate_margin_test.py` and `scripts/mutation_test.py`.
+- Decisions R1 to R14 recorded in `docs/analysis_plan.md`.
+
+**Measured** (details and sources in `docs/results/calibration.md` and `mutation.md`).
+- Calibration at the real regime (69 admitted alleles, 6,475 test records), 1,500
+  replicates per scenario: false-significance rate 0.0513 (S1, upper 0.0637) and zero
+  (S2, upper 0.0025). The R3 rule (upper at most 0.07) is met and the test is unchanged.
+  Supplementary S3: 0.0567, upper 0.0696, inside the rule by 0.0004.
+- Mutation test: 19 defects, first run 16 killed and 3 survived (M04, M05, M13); three
+  tests added; rerun 19 killed.
+- `python scripts/verify.py` passes (264 tests collected, lint, honesty and types clean).
+
+**Not done / limits.** The 100-replicate B = 10,000 spot check of S1 (7 of 100) cannot meet
+the rule at that size and is not evidence either way. S2 is conservative. Mutation testing
+covers 19 hand-chosen defects in the evaluation module only. No data were frozen and no
+model was trained. The roadmap tripwire dates for Stages 3 to 5 have passed and are
+revisited when Stage 3 is planned. FR-65 and the published-model reproduction remain open.
+

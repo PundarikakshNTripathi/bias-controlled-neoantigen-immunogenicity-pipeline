@@ -6,12 +6,12 @@ pushes it, and updates this file. The same command resumes an interrupted stage.
 
 ## Status
 
-Current module: Stage 1
-State: IN PROGRESS
+Current module: Stage 2
+State: TODO
 
 | Stage | Title | Tier | State | Finished | Commit |
 |---|---|---|---|---|---|
-| 1 | Harden the evaluation | A | IN PROGRESS | | |
+| 1 | Harden the evaluation | A | DONE | 2026-10-26 | 5098811 |
 | 2 | Data and frozen splits | A | TODO | | |
 | 3 | The model and its controls | A | TODO | | |
 | 4 | H1 on the published benchmarks | A | TODO | | |
@@ -26,25 +26,7 @@ analyses, Stage 7. Never cut the null controls or the honesty rules.
 
 ## In progress
 
-Stage 1: Harden the evaluation. Plan approved 2026-10-26. Tick each step in the commit that finishes it.
-
-- [x] 1. Commit the setup files; this checklist in place, State IN PROGRESS.
-- [x] 2. R10: hooks use `.venv\Scripts\python.exe`; run each hook by hand; `verify.py --fast`.
-- [x] 3. R1 as an added condition (iii): truth table first, then `gate.py` (upper 95% bound of
-  |kappa_model| - |kappa_HLA-only| strictly below zero; missing gives PENDING; no override).
-- [x] 4. Wire (iii) into `protocol.py` (report block, `kappa_gate_rule` text) with protocol tests.
-- [x] 5. `scripts/calibrate_margin_test.py` (resumable, deterministic) and a 20-replicate pilot at
-  B = 10,000; timing recorded; B and replicate count decided from it.
-- [ ] 6. Run the calibration (S1 noise-vs-noise, S2 lookup control vs zero-skill model, empirical allele
-  sizes from the grouped majority split, target 1,500 replicates each); write
-  `docs/results/calibration.md` with the R3 verdict.
-- [ ] 7. Only if R3 fails: percentile-t, then allele permutation, test-first, recalibrated.
-- [x] 8. `scripts/mutation_test.py`, 17 roadmap mutations plus removal of (iii); `docs/results/mutation.md`.
-- [x] 9. A test for every non-equivalent survivor (fails on the mutant, passes on the code).
-- [ ] 10. (decisions part committed; results to add) Pre-registration addendum in the deviation log of `docs/analysis_plan.md`.
-- [ ] 11. Full `verify.py`; `docs/progress.md`, README, CLAUDE.md; roadmap Stage 1 DONE; push.
-
-Notes: `PROMPTS.md` and `starter.md` are not part of this stage and stay uncommitted.
+None.
 
 ## Decisions already approved (2026-10-11, plan v2 section 3)
 
