@@ -1,0 +1,166 @@
+{
+  "test_files": [
+    "tests/test_gate.py",
+    "tests/test_protocol.py",
+    "tests/test_metrics_and_policy.py"
+  ],
+  "summary": {
+    "killed": 16,
+    "survived": 3,
+    "error": 0
+  },
+  "results": [
+    {
+      "id": "M01",
+      "what": "flip the one-sided direction of the bootstrap p-value",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_p_value_formula_and_exclusion_of_undefined_resamples",
+      "seconds": 2.9,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M02",
+      "what": "ignore the HLA-only control: its margin is never required",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_gate.py::test_controls_present_but_margin_not_significant",
+      "seconds": 2.3,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M03",
+      "what": "pessimistic ties: no other positive of a tie group ranks ahead",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_expected_average_precision_is_the_exact_mean_over_tie_orderings",
+      "seconds": 2.7,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M04",
+      "what": "resample records instead of alleles",
+      "status": "survived",
+      "first_failure": "",
+      "seconds": 654.3,
+      "pytest_exit_code": 0
+    },
+    {
+      "id": "M05",
+      "what": "skip seed averaging in the bootstrap (first seed only)",
+      "status": "survived",
+      "first_failure": "",
+      "seconds": 699.3,
+      "pytest_exit_code": 0
+    },
+    {
+      "id": "M06",
+      "what": "a missing kappa interval is treated as satisfying condition (ii)",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_gate.py::test_unmeasured_kappa_interval_blocks_a_pass - Ass...",
+      "seconds": 2.2,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M07",
+      "what": "accept fewer or other seeds than the pre-registered five",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_with_fewer_than_the_expected_seeds",
+      "seconds": 566.4,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M08",
+      "what": "skip the matched-config check (epochs, stopping, tuning)",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_when_control_config_differs_from_the_model[epochs-11]",
+      "seconds": 572.1,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M09",
+      "what": "skip the requested-split-hash check",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_when_split_hash_differs - Failed:...",
+      "seconds": 459.6,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M10",
+      "what": "skip the records-digest check",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_tampered_records_under_an_unchanged_split_hash[label]",
+      "seconds": 458.4,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M11",
+      "what": "skip the finite-score check",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_non_finite_predictions[nan] - Fai...",
+      "seconds": 570.5,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M12",
+      "what": "accept runs that are missing test records",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_when_a_score_is_missing_for_a_test_record",
+      "seconds": 557.9,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M13",
+      "what": "accept a seed file that repeats a record index",
+      "status": "survived",
+      "first_failure": "",
+      "seconds": 579.1,
+      "pytest_exit_code": 0
+    },
+    {
+      "id": "M14",
+      "what": "skip the HLA-only constancy check",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_an_hla_only_control_that_varies_within_an_allele",
+      "seconds": 505.6,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M15",
+      "what": "skip the peptide-only identity check",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_a_peptide_only_control_that_scores_a_shared_peptide_differently",
+      "seconds": 505.0,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M16",
+      "what": "skip the peptide-overlap-between-partitions check",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_when_a_peptide_occurs_in_more_than_one_partition",
+      "seconds": 486.6,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M17",
+      "what": "drop the peptide-only condition (iv)",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_gate.py::test_significant_margin_but_significantly_worse_than_peptide_only_fails",
+      "seconds": 2.3,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M18",
+      "what": "drop the HLA-only-anchored shortcut condition (iii)",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_gate.py::test_a_bound_above_zero_against_the_hla_only_control_fails_condition_iii",
+      "seconds": 2.0,
+      "pytest_exit_code": 1
+    },
+    {
+      "id": "M19",
+      "what": "skip the recomputed-split-hash check",
+      "status": "killed",
+      "first_failure": "FAILED tests/test_protocol.py::test_refuses_when_split_file_does_not_match_its_declared_hash",
+      "seconds": 398.8,
+      "pytest_exit_code": 1
+    }
+  ]
+}

@@ -22,6 +22,14 @@ Scenarios (the test set, its labels and alleles are the real ones; only scores v
       HLA-only control); the model is the same lookup plus N(0, 0.02^2) noise, so it
       has no peptide skill.
 
+  S3  (supplementary, added on 2026-10-26 after S2 was seen to be conservative: its
+      noise can swap alleles whose training rates are close, which gives a small
+      systematic negative margin) the same as S2 but with noise of standard deviation
+      1e-6, so the allele order never changes and only the order within an allele
+      differs: the exact null for a lookup control. S3 is reported whatever it shows;
+      the R3 verdict is read from S1 and S2, which were declared first, and S3 is
+      shown beside it.
+
 Each replicate draws fresh scores for seeds 1 to 5 and a fresh set of bootstrap
 resamples. A replicate is a false significance when delta > 0 and p < 0.05, the same
 condition `ControlMargin.significant` applies.
@@ -54,7 +62,8 @@ SEEDS = (1, 2, 3, 4, 5)
 ALPHA = 0.05
 RULE_UPPER_BOUND = 0.07
 LOOKUP_NOISE_SD = 0.02
-SCENARIOS = {"S1": 1, "S2": 2}
+SCENARIOS = {"S1": 1, "S2": 2, "S3": 3}
+TIGHT_NOISE_SD = 1e-6
 
 _REGIME: dict[str, np.ndarray] = {}
 
@@ -137,7 +146,8 @@ def run_replicate(task: tuple[str, int, int]) -> dict[str, Any]:
         model = [rng.normal(size=n) for _ in SEEDS]
         control = [rng.normal(size=n) for _ in SEEDS]
     else:
-        model = [lookup + rng.normal(scale=LOOKUP_NOISE_SD, size=n) for _ in SEEDS]
+        sd = LOOKUP_NOISE_SD if scenario == "S2" else TIGHT_NOISE_SD
+        model = [lookup + rng.normal(scale=sd, size=n) for _ in SEEDS]
         control = [lookup.copy() for _ in SEEDS]
     counts = stats.cluster_counts(
         int(allele_idx.max()) + 1, n_boot, seed=900_000 + 1000 * SCENARIOS[scenario] + rep
