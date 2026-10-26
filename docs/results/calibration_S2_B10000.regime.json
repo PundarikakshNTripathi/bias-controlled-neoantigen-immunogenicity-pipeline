@@ -1,0 +1,14 @@
+{
+  "dataset": "C:\\PROFESSIONAL\\Undergrad-Major-Project-Thesis\\bias-controlled-neoantigen-immunogenicity-pipeline\\artefacts\\datasets\\iedb_tcell_majority.parquet",
+  "dataset_sha256": "ad0f63bacc5d27c9a0f0ed8290e5f17151fc2b2ececd7d97a9ba5f4c66ce8808",
+  "split_content_hash": "eeed58f4e4fa47a2b7e043c4005446de9d56104ba8cf2c02bea9273d19dd212e",
+  "criterion": "{\"group_by\":\"peptide\",\"max_abs_rho\":1.0,\"min_samples_per_allele\":20,\"seed\":20260928,\"test_fraction\":0.15,\"train_fraction\":0.7,\"val_fraction\":0.15}",
+  "n_test_records": 6475,
+  "n_test_positives": 3137,
+  "n_admitted_alleles": 69,
+  "n_test_alleles": 69,
+  "allele_test_size_min": 3,
+  "allele_test_size_median": 21.0,
+  "allele_test_size_max": 1716,
+  "alleles_without_training_records": 0
+}
